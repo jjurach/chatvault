@@ -112,10 +112,10 @@ def chat(model: str, messages: List[str], client: str, bearer: str, server_url: 
 
         # Log the request if requested
         if logfile or verbose:
-            log_entry = setup_logging(client, model, request_data, response_data,
-                                    logfile, verbose, stream)
-            if not logfile:  # Print to stdout if no file specified
-                click.echo(json.dumps(log_entry, indent=2), err=True)
+            logger = setup_logging(logfile=logfile, verbose=verbose)
+            logger.log_request_response(client, model, request_data, response_data,
+                                      verbose=verbose)
+            logger.close()
 
         # Output response
         if stream:
