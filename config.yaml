@@ -1,0 +1,82 @@
+model_list:
+  - model_name: vault-architect
+    litellm_params:
+      model: claude-3-sonnet-20240229
+      api_key: ${ANTHROPIC_API_KEY}
+      api_base: null
+      max_tokens: 4096
+      temperature: 0.7
+
+  - model_name: vault-architect-3-5
+    litellm_params:
+      model: claude-3-5-sonnet-20241022
+      api_key: ${ANTHROPIC_API_KEY}
+      api_base: null
+      max_tokens: 8192
+      temperature: 0.7
+
+  - model_name: vault-local
+    litellm_params:
+      model: llama3.2:3b
+      api_base: ${OLLAMA_BASE_URL}
+      api_key: null
+      max_tokens: 4096
+      temperature: 0.7
+
+  - model_name: vault-local-large
+    litellm_params:
+      model: llama3.1:8b
+      api_base: ${OLLAMA_BASE_URL}
+      api_key: null
+      max_tokens: 8192
+      temperature: 0.7
+
+  - model_name: vault-deepseek
+    litellm_params:
+      model: deepseek-chat
+      api_key: ${DEEPSEEK_API_KEY}
+      api_base: null
+      max_tokens: 4096
+      temperature: 0.7
+
+  - model_name: vault-deepseek-coder
+    litellm_params:
+      model: deepseek-coder
+      api_key: ${DEEPSEEK_API_KEY}
+      api_base: null
+      max_tokens: 4096
+      temperature: 0.7
+
+# General settings
+general_settings:
+  # Master key for accessing all models
+  master_key: ${CHATVAULT_API_KEY}
+
+  # Database settings
+  database_url: ${DATABASE_URL}
+
+  # Logging
+  log_level: ${LOG_LEVEL}
+
+  # Telemetry (disable for privacy)
+  telemetry: false
+
+# Router settings
+router_settings:
+  # Routing strategy (simple, usage-based, latency-based)
+  routing_strategy: "simple"
+
+  # Fallback settings
+  fallbacks:
+    - vault-architect: ["vault-architect-3-5"]
+    - vault-local: ["vault-local-large"]
+
+  # Rate limiting per user
+  rate_limit_per_user:
+    requests_per_minute: ${RATE_LIMIT_REQUESTS}
+
+  # Model aliases for easier access
+  model_aliases:
+    architect: vault-architect
+    local: vault-local
+    deepseek: vault-deepseek

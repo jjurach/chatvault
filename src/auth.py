@@ -1,0 +1,336 @@
+"""
+Authentication and authorization for ChatVault.
+
+This module provides authentication middleware and utilities for securing
+the ChatVault API endpoints with Bearer token authentication.
+"""
+
+import logging
+from typing import Optional, Dict, Any
+from datetime import datetime, timedelta
+
+from fastapi import Depends, HTTPException, status, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import jwt
+
+from .config import settings
+
+logger = logging.getLogger(__name__)
+
+# Security scheme for OpenAPI documentation
+security = HTTPBearer(auto_error=False)
+
+
+class Authenticator:
+    """
+    Handles authentication logic for ChatVault API.
+
+    Supports Bearer token authentication with configurable validation.
+    """
+
+    def __init__(self):
+        self.api_key = settings.chatvault_api_key
+        self.auth_required = settings.auth_required
+
+        # JWT configuration (for future use)
+        self.jwt_secret = getattr(settings, 'jwt_secret', 'chatvault-secret-key')
+        self.jwt_algorithm = getattr(settings, 'jwt_algorithm', 'HS256')
+        self.jwt_expiration_hours = getattr(settings, 'jwt_expiration_hours', 24)
+
+    def authenticate_token(self, credentials: Optional[HTTPAuthorizationCredentials]) -> Optional[str]:
+        """
+        Authenticate a Bearer token.
+
+        Args:
+            credentials: HTTP Bearer token credentials
+
+        Returns:
+            User identifier if authentication successful, None otherwise
+
+        Raises:
+            HTTPException: If authentication fails and auth is required
+        """
+        if not self.auth_required:
+            logger.debug("Authentication disabled, allowing request")
+            return "anonymous"
+
+        if not credentials:
+            if self.auth_required:
+                logger.warning("No authentication credentials provided")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Authentication required",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            return "anonymous"
+
+        if credentials.scheme.lower() != "bearer":
+            logger.warning(f"Invalid authentication scheme: {credentials.scheme}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication scheme",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        token = credentials.credentials
+
+        if not self._validate_token(token):
+            logger.warning("Invalid authentication token provided")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # For now, return a generic user ID
+        # In the future, this could decode JWT tokens or look up user info
+        user_id = self._extract_user_from_token(token)
+        logger.debug(f"Authentication successful for user: {user_id}")
+        return user_id
+
+    def _validate_token(self, token: str) -> bool:
+        """
+        Validate an authentication token.
+
+        Currently supports simple API key comparison.
+        Can be extended to support JWT tokens, database lookups, etc.
+
+        Args:
+            token: The token to validate
+
+        Returns:
+            True if token is valid, False otherwise
+        """
+        # Simple API key comparison
+        if token == self.api_key:
+            return True
+
+        # Future: Add JWT validation
+        try:
+            payload = jwt.decode(token, self.jwt_secret, algorithms=[self.jwt_algorithm])
+            # Check expiration
+            exp = payload.get('exp')
+            if exp and datetime.utcnow().timestamp() > exp:
+                return False
+            return True
+        except jwt.PyJWTError:
+            pass
+
+        return False
+
+    def _extract_user_from_token(self, token: str) -> str:
+        """
+        Extract user identifier from token.
+
+        Args:
+            token: Authentication token
+
+        Returns:
+            User identifier string
+        """
+        # Simple API key - return generic user
+        if token == self.api_key:
+            return "api_user"
+
+        # Future: Extract from JWT
+        try:
+            payload = jwt.decode(token, self.jwt_secret, algorithms=[self.jwt_algorithm])
+            return payload.get('sub', 'jwt_user')
+        except jwt.PyJWTError:
+            return "unknown_user"
+
+    def create_jwt_token(self, user_id: str, expires_delta: Optional[timedelta] = None) -> str:
+        """
+        Create a JWT token for a user.
+
+        Args:
+            user_id: User identifier
+            expires_delta: Token expiration time
+
+        Returns:
+            JWT token string
+        """
+        if expires_delta is None:
+            expires_delta = timedelta(hours=self.jwt_expiration_hours)
+
+        expire = datetime.utcnow() + expires_delta
+
+        to_encode = {
+            "sub": user_id,
+            "exp": expire.timestamp(),
+            "iat": datetime.utcnow().timestamp(),
+        }
+
+        encoded_jwt = jwt.encode(to_encode, self.jwt_secret, algorithm=self.jwt_algorithm)
+        return encoded_jwt
+
+    def get_token_from_request(self, request: Request) -> Optional[str]:
+        """
+        Extract token from request headers.
+
+        Args:
+            request: FastAPI request object
+
+        Returns:
+            Token string or None
+        """
+        auth_header = request.headers.get("Authorization")
+        if not auth_header:
+            return None
+
+        try:
+            scheme, token = auth_header.split(" ", 1)
+            if scheme.lower() == "bearer":
+                return token
+        except ValueError:
+            pass
+
+        return None
+
+
+# Global authenticator instance
+authenticator = Authenticator()
+
+
+async def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> str:
+    """
+    FastAPI dependency for user authentication.
+
+    Args:
+        credentials: HTTP Bearer token credentials
+
+    Returns:
+        User identifier string
+
+    Raises:
+        HTTPException: If authentication fails
+    """
+    return authenticator.authenticate_token(credentials)
+
+
+def require_auth(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> str:
+    """
+    Synchronous version of authentication dependency.
+
+    Args:
+        credentials: HTTP Bearer token credentials
+
+    Returns:
+        User identifier string
+
+    Raises:
+        HTTPException: If authentication fails
+    """
+    return authenticator.authenticate_token(credentials)
+
+
+class AuthMiddleware:
+    """
+    Middleware for handling authentication on all requests.
+
+    Can be used to add authentication to routes that don't use dependencies.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # For now, just pass through
+        # Could add global auth checking here if needed
+        await self.app(scope, receive, send)
+
+
+# Utility functions for auth management
+def validate_api_key_format(api_key: str) -> bool:
+    """
+    Validate API key format.
+
+    Args:
+        api_key: API key to validate
+
+    Returns:
+        True if format is valid
+    """
+    # Basic validation - should be reasonably long and not empty
+    return bool(api_key and len(api_key) >= 16)
+
+
+def mask_api_key(api_key: str) -> str:
+    """
+    Mask an API key for logging purposes.
+
+    Args:
+        api_key: API key to mask
+
+    Returns:
+        Masked version of the key
+    """
+    if not api_key:
+        return ""
+
+    if len(api_key) <= 8:
+        return "*" * len(api_key)
+
+    # Show first 4 and last 4 characters
+    return f"{api_key[:4]}****{api_key[-4:]}"
+
+
+def generate_secure_api_key(length: int = 32) -> str:
+    """
+    Generate a secure random API key.
+
+    Args:
+        length: Length of the key
+
+    Returns:
+        Random API key string
+    """
+    import secrets
+    import string
+
+    alphabet = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+
+# Health check for authentication system
+def check_auth_health() -> Dict[str, Any]:
+    """
+    Check the health of the authentication system.
+
+    Returns:
+        Dict with health check results
+    """
+    health = {
+        "auth_enabled": settings.auth_required,
+        "api_key_configured": bool(settings.chatvault_api_key),
+        "api_key_valid": False,
+        "jwt_enabled": False,  # Future feature
+    }
+
+    if settings.chatvault_api_key:
+        health["api_key_valid"] = validate_api_key_format(settings.chatvault_api_key)
+
+    return health
+
+
+if __name__ == "__main__":
+    # Test authentication functions
+    logging.basicConfig(level=logging.INFO)
+
+    print("Auth System Health Check:")
+    health = check_auth_health()
+    for key, value in health.items():
+        print(f"  {key}: {value}")
+
+    print("\nGenerating sample API key:")
+    sample_key = generate_secure_api_key()
+    print(f"  Key: {sample_key}")
+    print(f"  Masked: {mask_api_key(sample_key)}")
