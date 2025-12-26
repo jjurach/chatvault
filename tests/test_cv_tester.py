@@ -11,10 +11,10 @@ import sys
 import os
 
 # Add src directory to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-import cv_tester
-from cv_tester import ChatVaultTester, DEFAULT_CONFIG
+import chatvault.cv_tester as cv_tester
+from chatvault.cv_tester import ChatVaultTester, DEFAULT_CONFIG
 
 
 class TestChatVaultTester(unittest.TestCase):
@@ -23,7 +23,7 @@ class TestChatVaultTester(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.tester = ChatVaultTester('http://localhost:4000', timeout=5)
-        self.test_token = DEFAULT_CONFIG['default_bearer_tokens']['mobile1']
+        self.test_token = DEFAULT_CONFIG['default_bearer_tokens']['local1']
 
     @patch.object(ChatVaultTester, 'make_request')
     def test_make_request_get_success(self, mock_make_request):
@@ -116,17 +116,22 @@ class TestChatVaultTester(unittest.TestCase):
     def test_test_model_restrictions_success(self):
         """Test successful model restrictions validation."""
         with patch.object(self.tester, 'make_request') as mock_request:
-            # Mock restriction test (should fail for vault-architect)
+            # Mock all the requests made by test_model_restrictions method
+            # 1. local1 access to vault-qwen3-8k (should succeed)
+            # 2. local1 access to vault-mistral-nemo-8k (should succeed)
+            # 3. full1 access to vault-qwen3-8k (should succeed)
             mock_request.side_effect = [
-                (403, {'error': 'Forbidden'}),  # Restricted model
-                (200, {'choices': []})  # Allowed model
+                (200, {'choices': []}),  # local1 qwen3-8k
+                (200, {'choices': []}),  # local1 mistral
+                (200, {'choices': []})   # full1 qwen3-8k
             ]
 
             result = self.tester.test_model_restrictions('restricted-token', 'full-token')
 
             self.assertEqual(result['status'], 'PASS')
-            self.assertEqual(result['restriction_test'], 'PASS')
-            self.assertEqual(result['access_test'], 'PASS')
+            self.assertEqual(result['local1_qwen3_test'], 'PASS')
+            self.assertEqual(result['local1_mistral_test'], 'PASS')
+            self.assertEqual(result['full1_qwen3_test'], 'PASS')
 
     def test_test_streaming_response_success(self):
         """Test successful streaming response."""
@@ -205,7 +210,7 @@ class TestChatVaultTester(unittest.TestCase):
 class TestCommandLineInterface(unittest.TestCase):
     """Test cases for command-line interface."""
 
-    @patch('cv_tester.ChatVaultTester')
+    @patch('chatvault.cv_tester.ChatVaultTester')
     def test_main_basic_args(self, mock_tester_class):
         """Test main function with basic arguments."""
         mock_tester = Mock()
@@ -217,7 +222,7 @@ class TestCommandLineInterface(unittest.TestCase):
 
         with patch('sys.argv', ['cv_tester.py', 'basic']):
             with patch('builtins.print') as mock_print:
-                from cv_tester import main
+                from chatvault.cv_tester import main
                 main()
 
                 # Verify tester was created with correct URL
@@ -226,7 +231,7 @@ class TestCommandLineInterface(unittest.TestCase):
                 # Verify tests were run
                 mock_tester.run_tests.assert_called_once()
 
-    @patch('cv_tester.ChatVaultTester')
+    @patch('chatvault.cv_tester.ChatVaultTester')
     def test_main_with_port_override(self, mock_tester_class):
         """Test main function with port override."""
         mock_tester = Mock()
@@ -238,13 +243,13 @@ class TestCommandLineInterface(unittest.TestCase):
 
         with patch('sys.argv', ['cv_tester.py', '--port', '8080', 'basic']):
             with patch('builtins.print'):
-                from cv_tester import main
+                from chatvault.cv_tester import main
                 main()
 
                 # Verify tester was created with modified URL
                 mock_tester_class.assert_called_with('http://localhost:8080', 30)
 
-    @patch('cv_tester.ChatVaultTester')
+    @patch('chatvault.cv_tester.ChatVaultTester')
     def test_main_with_bearer_token(self, mock_tester_class):
         """Test main function with custom bearer token."""
         mock_tester = Mock()
@@ -257,7 +262,7 @@ class TestCommandLineInterface(unittest.TestCase):
         test_token = 'custom-token-123'
         with patch('sys.argv', ['cv_tester.py', '--bearer', test_token, 'basic']):
             with patch('builtins.print'):
-                from cv_tester import main
+                from chatvault.cv_tester import main
                 main()
 
                 # Verify tests were run with custom token
@@ -265,7 +270,7 @@ class TestCommandLineInterface(unittest.TestCase):
                 args, kwargs = mock_tester.run_tests.call_args
                 self.assertEqual(args[1], test_token)
 
-    @patch('cv_tester.ChatVaultTester')
+    @patch('chatvault.cv_tester.ChatVaultTester')
     def test_main_json_output(self, mock_tester_class):
         """Test main function with JSON output."""
         mock_tester = Mock()
@@ -283,7 +288,7 @@ class TestCommandLineInterface(unittest.TestCase):
 
                 mock_dumps.return_value = '{"test": "data"}'
 
-                from cv_tester import main
+                from chatvault.cv_tester import main
                 main()
 
                 # Verify JSON output was used
