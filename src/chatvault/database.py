@@ -10,7 +10,7 @@ import logging
 from contextlib import contextmanager
 from typing import Generator, Optional
 
-from sqlalchemy import create_engine, MetaData
+from sqlalchemy import create_engine, MetaData, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
@@ -116,7 +116,7 @@ def init_db() -> None:
 
         # Verify tables were created
         with engine.connect() as conn:
-            result = conn.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            result = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table';"))
             tables = [row[0] for row in result.fetchall()]
             logger.info(f"Created tables: {tables}")
 
@@ -151,7 +151,7 @@ def check_db_connection() -> bool:
     """
     try:
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
         return True
     except Exception as e:
         logger.error(f"Database connection check failed: {e}")
@@ -179,13 +179,13 @@ def get_db_stats() -> dict:
         with engine.connect() as conn:
             # Get table list
             if DATABASE_URL.startswith("sqlite"):
-                result = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
+                result = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';"))
                 stats["tables"] = [row[0] for row in result.fetchall()]
 
                 # Get row counts for each table
                 for table in stats["tables"]:
                     try:
-                        result = conn.execute(f"SELECT COUNT(*) FROM {table}")
+                        result = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
                         count = result.fetchone()[0]
                         stats["table_counts"][table] = count
                     except Exception as e:
