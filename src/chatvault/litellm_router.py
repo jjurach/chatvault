@@ -18,6 +18,7 @@ from litellm.utils import get_model_info, token_counter
 from .config import settings
 from .database import get_db_session
 from .models import UsageLog
+from .load_balancer import load_balancer, ProviderInstance
 
 logger = logging.getLogger(__name__)
 
@@ -147,8 +148,22 @@ class LiteLLMRouter:
         start_time = time.time()
 
         try:
+            # Select load-balanced instance for this model
+            instance = load_balancer.select_instance(model)
+            if not instance:
+                raise RuntimeError(f"No healthy instances available for model {model}")
+
+            # Record request start
+            instance.record_request_start()
+
             # Get the actual model parameters from config
             model_params = self._get_model_params(model)
+
+            # Override with instance-specific configuration if available
+            if instance.api_key:
+                model_params['api_key'] = instance.api_key
+            if instance.base_url:
+                model_params['api_base'] = instance.base_url
 
             # Merge with additional kwargs
             completion_kwargs = {**model_params, **kwargs}
@@ -162,6 +177,9 @@ class LiteLLMRouter:
 
             # Extract usage information
             usage_info = self._extract_usage_info(response, model)
+
+            # Record successful request to load balancer
+            load_balancer.record_request(model, instance.instance_id, True, response_time_ms / 1000.0)
 
             # Log usage to database
             await self._log_usage(
@@ -202,6 +220,10 @@ class LiteLLMRouter:
             return response
 
         except Exception as e:
+            # Record failed request to load balancer
+            if 'instance' in locals():
+                load_balancer.record_request(model, instance.instance_id, False, (time.time() - start_time))
+
             # Log failed request
             response_time_ms = int((time.time() - start_time) * 1000)
 
