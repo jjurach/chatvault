@@ -80,3 +80,15 @@ router_settings:
     architect: vault-architect
     local: vault-local
     deepseek: vault-deepseek
+
+# CLI Client definitions for command-line usage
+clients:
+  mobile1:
+    bearer_token: "YOUR_LOCAL1_BEARER_TOKEN"
+    allowed_models:
+      - "vault-local"  # Restricted to local Ollama model
+
+  full3:
+    bearer_token: "YOUR_FULL1_BEARER_TOKEN"
+    allowed_models:
+      - "*"  # Allow all models
