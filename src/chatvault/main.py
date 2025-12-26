@@ -384,9 +384,27 @@ async def chat_completions(
         from .streaming_handler import validate_openai_request
         normalized_request = validate_openai_request(request_data)
 
-        model = normalized_request["model"]
+        requested_model = normalized_request["model"]
         messages = normalized_request["messages"]
         stream = normalized_request.get("stream", False)
+
+        # Dynamic model selection
+        from .model_selector import model_selector
+        request_context = model_selector.analyze_request_context(
+            messages=messages,
+            requested_model=requested_model,
+            user_id=user_id
+        )
+
+        # Select model based on context and configuration
+        if requested_model == "auto" or settings.get_litellm_config().get('model_routing', {}).get('auto_select', False):
+            # Use intelligent model selection
+            selected_model = model_selector.select_model(request_context, user_id)
+            logger.info(f"Auto-selected model: {selected_model} for user {user_id} (requested: {requested_model})")
+            model = selected_model
+        else:
+            # Use requested model
+            model = requested_model
 
         # Validate model access for authenticated user
         from .auth import authenticator
@@ -1350,6 +1368,105 @@ async def get_load_balancer_stats(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve load balancer statistics"
+        )
+
+
+# Model selection monitoring endpoints
+@app.get("/admin/model-selector/stats")
+async def get_model_selector_stats(
+    user_id: str = Depends(require_auth)
+):
+    """
+    Get model selector statistics and recommendations.
+
+    Requires admin authentication.
+    """
+    try:
+        # Only allow admin users to access this endpoint
+        if not (user_id == "api_user" or user_id.startswith("admin")):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin access required"
+            )
+
+        from .model_selector import get_model_profiles, get_experiment_results
+        profiles = get_model_profiles()
+        experiments = get_experiment_results()
+
+        return {
+            "model_profiles": profiles,
+            "experiments": experiments,
+            "timestamp": int(time.time())
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving model selector stats: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve model selector statistics"
+        )
+
+
+@app.get("/models/recommend")
+async def get_model_recommendations(
+    messages: str,
+    user_id: str = Depends(require_auth),
+    limit: int = 3
+):
+    """
+    Get model recommendations for a given request.
+
+    Query Parameters:
+    - messages: JSON string of chat messages
+    - limit: Maximum number of recommendations to return (default: 3)
+
+    This endpoint analyzes the request content and returns the best model recommendations
+    with scores based on performance, cost, and capability matching.
+    """
+    try:
+        import json
+
+        # Parse messages from query parameter
+        try:
+            parsed_messages = json.loads(messages)
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid messages JSON format"
+            )
+
+        if not isinstance(parsed_messages, list):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Messages must be a JSON array"
+            )
+
+        # Get recommendations
+        from .model_selector import get_model_recommendations
+        recommendations = get_model_recommendations(parsed_messages, limit)
+
+        return {
+            "recommendations": [
+                {
+                    "model": rec[0],
+                    "score": round(rec[1], 2),
+                    "rank": i + 1
+                }
+                for i, rec in enumerate(recommendations)
+            ],
+            "total_available": len(settings.get_available_models()),
+            "limit": limit
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting model recommendations: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get model recommendations"
         )
 
 
