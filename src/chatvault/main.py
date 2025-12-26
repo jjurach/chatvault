@@ -439,7 +439,7 @@ def main():
     logger.info(f"Starting ChatVault server on {settings.host}:{settings.port}")
 
     uvicorn.run(
-        "main:app",
+        app,
         host=settings.host,
         port=settings.port,
         reload=settings.debug,

@@ -60,7 +60,8 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "chatvault=cli:main",
+            "chatvault=chatvault.cli:main",
+            "cv-tester=chatvault.cv_tester:main",
         ],
     },
     include_package_data=True,

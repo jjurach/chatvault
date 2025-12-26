@@ -11,18 +11,10 @@ from typing import Optional, Dict, Any, List
 import click
 
 # Import CLI modules
-import sys
-import os
-
-# Add current directory to path for imports
-current_dir = os.path.dirname(__file__)
-if current_dir not in sys.path:
-    sys.path.insert(0, current_dir)
-
-from cli_config import load_config, get_client_config, get_available_models, get_provider_for_model
-from cli_auth import authenticate_client, validate_model_access
-from cli_logging import setup_logging
-from cli_server import make_chat_request, get_server_url, check_server_health
+from .cli_config import load_config, get_client_config, get_available_models, get_provider_for_model
+from .cli_auth import authenticate_client, validate_model_access
+from .cli_logging import setup_logging
+from .cli_server import make_chat_request, get_server_url, check_server_health
 
 
 @click.group()
