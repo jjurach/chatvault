@@ -121,6 +121,45 @@ class ChatVaultTester:
             'message': 'Basic connectivity verified'
         }
 
+    def list_client_models(self, bearer_token: str) -> Dict[str, Any]:
+        """List models available to the client with the given bearer token."""
+        print("Listing models available to client...")
+
+        status, data = self.make_request('/v1/models', bearer_token=bearer_token)
+
+        if status != 200:
+            return {
+                'operation': 'list_client_models',
+                'status': 'FAIL',
+                'error': f'Failed to retrieve models: {status}',
+                'details': data
+            }
+
+        # Extract model IDs from the response
+        try:
+            models = data.get('data', [])
+            model_ids = [model.get('id', '') for model in models if model.get('id')]
+
+            print(f"  Available models ({len(model_ids)}):")
+            for model_id in sorted(model_ids):
+                print(f"    - {model_id}")
+
+            return {
+                'operation': 'list_client_models',
+                'status': 'SUCCESS',
+                'model_count': len(model_ids),
+                'models': model_ids,
+                'message': f'Client has access to {len(model_ids)} models'
+            }
+
+        except Exception as e:
+            return {
+                'operation': 'list_client_models',
+                'status': 'ERROR',
+                'error': f'Failed to parse models response: {e}',
+                'raw_data': data
+            }
+
     def test_authentication(self, bearer_token: str) -> Dict[str, Any]:
         """Test authentication with bearer token."""
         print("Testing authentication...")
@@ -333,6 +372,22 @@ class ChatVaultTester:
         full1_token = client_tokens.get('full1') if client_tokens else DEFAULT_CONFIG['default_bearer_tokens']['full1']
         test_token = bearer_token or local1_token
 
+        # Special case: list-models operation
+        if test_types == ['list-models']:
+            result = self.list_client_models(test_token)
+            if result['status'] == 'SUCCESS':
+                return {
+                    'timestamp': time.time(),
+                    'operation': 'list_client_models',
+                    'result': result
+                }
+            else:
+                return {
+                    'timestamp': time.time(),
+                    'operation': 'list_client_models',
+                    'error': result
+                }
+
         # Run tests
         if 'basic' in test_types or 'all' in test_types:
             result = self.test_basic_connectivity(test_token)
@@ -411,7 +466,7 @@ Examples:
     parser.add_argument('--json', action='store_true',
                        help='Output results in JSON format')
     parser.add_argument('tests', nargs='*', default=['all'],
-                       choices=['basic', 'models', 'streaming', 'errors', 'all'],
+                       choices=['basic', 'models', 'streaming', 'errors', 'list-models', 'all'],
                        help='Tests to run (default: all)')
 
     args = parser.parse_args()
@@ -442,7 +497,16 @@ Examples:
     # Run tests
     results = tester.run_tests(args.tests, bearer_token, DEFAULT_CONFIG['default_bearer_tokens'])
 
-    # Output results
+    # Handle special case: list-models operation
+    if args.tests == ['list-models']:
+        if args.json:
+            print(json.dumps(results, indent=2))
+        else:
+            # Already printed the model list in list_client_models method
+            pass
+        return
+
+    # Output regular test results
     if args.json:
         print(json.dumps(results, indent=2))
     else:

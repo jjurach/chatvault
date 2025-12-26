@@ -182,14 +182,21 @@ async def list_models(user_id: str = Depends(get_current_user)):
     """
     OpenAI-compatible models endpoint.
 
-    Returns list of available models configured in ChatVault.
+    Returns list of available models configured in ChatVault that the user can access.
     """
     try:
         available_models = settings.get_available_models()
 
+        # Filter models based on user permissions
+        from .auth import authenticator
+        accessible_models = []
+        for model_name in available_models:
+            if authenticator.validate_model_access(user_id, model_name):
+                accessible_models.append(model_name)
+
         # Format as OpenAI-compatible response
         models = []
-        for model_name in available_models:
+        for model_name in accessible_models:
             provider = settings.get_provider_for_model(model_name)
 
             models.append({
