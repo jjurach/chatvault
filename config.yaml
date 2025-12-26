@@ -1,7 +1,16 @@
+
 model_list:
   - model_name: vault-gemini-flash-lite
     litellm_params:
       model: gemini/gemini-flash-lite-latest
+      api_key: ${GEMINI_API_KEY}
+      api_base: null
+      max_tokens: 4096
+      temperature: 0.7
+
+  - model_name: vault-gemini-2.5-pro
+    litellm_params:
+      model: gemini/gemini-2.5-pro
       api_key: ${GEMINI_API_KEY}
       api_base: null
       max_tokens: 4096
@@ -91,16 +100,101 @@ router_settings:
 
 # Cost calculation settings
 cost_calculation:
+  # Enable advanced cost features
+  enable_advanced_costs: true
+
+  # Currency for cost calculations (ISO 4217 code)
+  currency: "USD"
+
+  # Exchange rate settings (for multi-currency support)
+  exchange_rates:
+    USD: 1.0
+    EUR: 0.85
+    GBP: 0.73
+
   # Custom cost definitions for models not supported by LiteLLM built-in pricing
   custom_costs:
     "ollama/nemo-8k:latest":
       input_cost_per_token: 0.0
       output_cost_per_token: 0.0
       max_tokens: 4096
+      currency: "USD"
     "ollama/qwen3-8k:latest":
       input_cost_per_token: 0.0
       output_cost_per_token: 0.0
       max_tokens: 8192
+      currency: "USD"
+
+  # Tiered pricing support (volume discounts)
+  tiered_pricing:
+    enabled: true
+    tiers:
+      - name: "starter"
+        monthly_token_limit: 100000
+        discount_percentage: 0.0
+        models: ["*"]  # All models
+      - name: "professional"
+        monthly_token_limit: 1000000
+        discount_percentage: 10.0
+        models: ["*"]
+      - name: "enterprise"
+        monthly_token_limit: 10000000
+        discount_percentage: 20.0
+        models: ["*"]
+
+  # Cost prediction settings
+  cost_prediction:
+    enabled: true
+    # Historical data window for prediction (days)
+    prediction_window_days: 30
+    # Confidence interval for predictions
+    confidence_interval: 0.95
+
+  # Budget and alerting settings
+  budget_alerts:
+    enabled: true
+    # Global budget limits
+    global_limits:
+      daily_budget: 100.0
+      monthly_budget: 3000.0
+      currency: "USD"
+
+    # Per-user budget limits
+    user_limits:
+      enabled: true
+      default_daily_limit: 10.0
+      default_monthly_limit: 300.0
+
+    # Alert thresholds (percentage of budget)
+    alert_thresholds: [50, 80, 90, 95, 100]
+
+    # Alert channels
+    notifications:
+      email:
+        enabled: false
+        smtp_server: "smtp.gmail.com"
+        smtp_port: 587
+        sender_email: "alerts@chatvault.com"
+      webhook:
+        enabled: false
+        url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+      log:
+        enabled: true
+        level: "WARNING"
+
+  # Cost reporting settings
+  reporting:
+    enabled: true
+    # Default reporting period
+    default_period: "monthly"
+    # Available periods
+    available_periods: ["daily", "weekly", "monthly", "yearly"]
+    # Cost breakdown categories
+    breakdown_categories:
+      - "model_usage"
+      - "provider_fees"
+      - "platform_fees"
+      - "discounts"
 
 # CLI Client definitions for command-line usage
 clients:

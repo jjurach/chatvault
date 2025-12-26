@@ -53,6 +53,9 @@ class UsageLog(Base):
     # Response time in milliseconds
     response_time_ms = Column(Integer, nullable=True)
 
+    # Error details (stored as JSON string for failed requests)
+    error_details = Column(Text, nullable=True)
+
     # HTTP status code
     status_code = Column(Integer, nullable=True)
 

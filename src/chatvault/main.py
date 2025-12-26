@@ -374,22 +374,580 @@ async def chat_completions(
 async def get_usage_stats(
     user_id: str = Depends(require_auth),
     limit: int = 100,
-    offset: int = 0
+    offset: int = 0,
+    model: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    format: str = "json"
 ):
     """
     Get usage statistics for the authenticated user.
 
-    Returns recent usage logs with pagination.
+    Returns usage logs with filtering, pagination, and aggregation.
+
+    Query Parameters:
+    - limit: Maximum number of records to return (default: 100, max: 1000)
+    - offset: Number of records to skip (default: 0)
+    - model: Filter by specific model name
+    - start_date: Filter records from this date (ISO format: YYYY-MM-DD)
+    - end_date: Filter records until this date (ISO format: YYYY-MM-DD)
+    - format: Response format - 'json' or 'csv' (default: json)
     """
-    # Placeholder - will be implemented when usage logging is complete
-    return {
-        "message": "Usage statistics endpoint - to be implemented",
-        "user_id": user_id,
-        "pagination": {
-            "limit": limit,
-            "offset": offset
-        }
-    }
+    from sqlalchemy import and_, func, desc
+    from datetime import datetime
+    from fastapi.responses import StreamingResponse
+    from .database import get_db_session
+    from .models import UsageLog
+
+    # Validate parameters
+    if limit > 1000:
+        limit = 1000
+    if limit < 1:
+        limit = 1
+    if offset < 0:
+        offset = 0
+
+    try:
+        with get_db_session() as db:
+            # Build query with filters
+            query = db.query(UsageLog).filter(UsageLog.user_id == user_id)
+
+            # Apply model filter
+            if model:
+                query = query.filter(UsageLog.model_name == model)
+
+            # Apply date filters
+            if start_date:
+                try:
+                    start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                    query = query.filter(UsageLog.timestamp >= start_dt)
+                except ValueError:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Invalid start_date format. Use ISO format: YYYY-MM-DD"
+                    )
+
+            if end_date:
+                try:
+                    end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                    query = query.filter(UsageLog.timestamp <= end_dt)
+                except ValueError:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Invalid end_date format. Use ISO format: YYYY-MM-DD"
+                    )
+
+            # Get total count for pagination
+            total_count = query.count()
+
+            # Apply ordering and pagination
+            usage_logs = query.order_by(desc(UsageLog.timestamp)).offset(offset).limit(limit).all()
+
+            # Calculate aggregations
+            agg_query = db.query(
+                func.count(UsageLog.id).label('total_requests'),
+                func.sum(UsageLog.total_tokens).label('total_tokens'),
+                func.sum(UsageLog.input_tokens).label('total_input_tokens'),
+                func.sum(UsageLog.output_tokens).label('total_output_tokens'),
+                func.sum(UsageLog.cost).label('total_cost'),
+                func.avg(UsageLog.response_time_ms).label('avg_response_time')
+            ).filter(UsageLog.user_id == user_id)
+
+            # Apply same filters to aggregation query
+            if model:
+                agg_query = agg_query.filter(UsageLog.model_name == model)
+            if start_date:
+                agg_query = agg_query.filter(UsageLog.timestamp >= start_dt)
+            if end_date:
+                agg_query = agg_query.filter(UsageLog.timestamp <= end_dt)
+
+            aggregations = agg_query.first()
+
+            # Handle CSV export
+            if format.lower() == "csv":
+                import csv
+                import io
+
+                def generate_csv():
+                    output = io.StringIO()
+                    writer = csv.writer(output)
+
+                    # Write header
+                    writer.writerow([
+                        'timestamp', 'model_name', 'input_tokens', 'output_tokens',
+                        'total_tokens', 'cost', 'provider', 'response_time_ms',
+                        'status_code', 'request_id'
+                    ])
+
+                    # Write data
+                    for log in usage_logs:
+                        writer.writerow([
+                            log.timestamp.isoformat() if log.timestamp else '',
+                            log.model_name,
+                            log.input_tokens,
+                            log.output_tokens,
+                            log.total_tokens,
+                            log.cost,
+                            log.provider or '',
+                            log.response_time_ms or '',
+                            log.status_code or '',
+                            log.request_id or ''
+                        ])
+
+                    yield output.getvalue()
+
+                return StreamingResponse(
+                    generate_csv(),
+                    media_type="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=usage_stats.csv"}
+                )
+
+            # Prepare JSON response
+            response_data = {
+                "user_id": user_id,
+                "pagination": {
+                    "limit": limit,
+                    "offset": offset,
+                    "total_count": total_count,
+                    "has_more": offset + limit < total_count
+                },
+                "filters": {
+                    "model": model,
+                    "start_date": start_date,
+                    "end_date": end_date
+                },
+                "aggregations": {
+                    "total_requests": aggregations.total_requests or 0,
+                    "total_tokens": int(aggregations.total_tokens or 0),
+                    "total_input_tokens": int(aggregations.total_input_tokens or 0),
+                    "total_output_tokens": int(aggregations.total_output_tokens or 0),
+                    "total_cost": round(float(aggregations.total_cost or 0), 6),
+                    "avg_response_time_ms": round(float(aggregations.avg_response_time or 0), 2)
+                },
+                "usage_logs": [log.to_dict() for log in usage_logs]
+            }
+
+            return response_data
+
+    except Exception as e:
+        logger.error(f"Error retrieving usage stats: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve usage statistics"
+        )
+
+
+# Cost prediction and estimation endpoint
+@app.get("/costs/predict")
+async def predict_costs(
+    user_id: str = Depends(require_auth),
+    days_ahead: int = 30,
+    model: Optional[str] = None
+):
+    """
+    Predict future costs based on historical usage patterns.
+
+    Query Parameters:
+    - days_ahead: Number of days to predict ahead (default: 30, max: 365)
+    - model: Specific model to predict costs for (optional)
+    """
+    from datetime import datetime, timedelta
+    from sqlalchemy import func, desc
+    from .database import get_db_session
+    from .models import UsageLog
+
+    # Validate parameters
+    if days_ahead > 365:
+        days_ahead = 365
+    if days_ahead < 1:
+        days_ahead = 1
+
+    try:
+        with get_db_session() as db:
+            # Get historical data for prediction
+            end_date = datetime.utcnow()
+            start_date = end_date - timedelta(days=settings.get_litellm_config().get('cost_calculation', {}).get('cost_prediction', {}).get('prediction_window_days', 30))
+
+            query = db.query(
+                func.date(UsageLog.timestamp).label('date'),
+                func.sum(UsageLog.cost).label('daily_cost'),
+                func.sum(UsageLog.total_tokens).label('daily_tokens'),
+                func.count(UsageLog.id).label('daily_requests')
+            ).filter(
+                UsageLog.user_id == user_id,
+                UsageLog.timestamp >= start_date,
+                UsageLog.timestamp <= end_date
+            )
+
+            if model:
+                query = query.filter(UsageLog.model_name == model)
+
+            query = query.group_by(func.date(UsageLog.timestamp)).order_by(desc('date'))
+
+            historical_data = query.all()
+
+            if not historical_data:
+                return {
+                    "prediction": {
+                        "total_predicted_cost": 0.0,
+                        "daily_average_cost": 0.0,
+                        "confidence_interval": {
+                            "low": 0.0,
+                            "high": 0.0
+                        }
+                    },
+                    "historical_data_points": 0,
+                    "message": "No historical data available for prediction"
+                }
+
+            # Simple linear regression for prediction
+            import numpy as np
+
+            # Prepare data for regression
+            dates = [(end_date - datetime.combine(row.date, datetime.min.time())).days for row in historical_data]
+            costs = [float(row.daily_cost) for row in historical_data]
+
+            if len(dates) < 2:
+                # Not enough data for prediction
+                avg_cost = np.mean(costs)
+                predicted_total = avg_cost * days_ahead
+
+                return {
+                    "prediction": {
+                        "total_predicted_cost": round(predicted_total, 2),
+                        "daily_average_cost": round(avg_cost, 2),
+                        "confidence_interval": {
+                            "low": round(predicted_total * 0.8, 2),
+                            "high": round(predicted_total * 1.2, 2)
+                        }
+                    },
+                    "historical_data_points": len(historical_data),
+                    "method": "simple_average"
+                }
+
+            # Linear regression
+            X = np.array(dates).reshape(-1, 1)
+            y = np.array(costs)
+
+            # Add intercept
+            X = np.column_stack([np.ones(len(X)), X])
+
+            # Calculate coefficients
+            try:
+                beta = np.linalg.inv(X.T @ X) @ X.T @ y
+                intercept, slope = beta[0], beta[1]
+
+                # Predict future costs
+                future_days = np.array(range(1, days_ahead + 1))
+                predicted_costs = intercept + slope * future_days
+                total_predicted = max(0, np.sum(predicted_costs))  # Ensure non-negative
+
+                # Calculate confidence interval (simplified)
+                residuals = y - (intercept + slope * np.array(dates))
+                std_error = np.std(residuals, ddof=2)
+                confidence_multiplier = 1.96  # 95% confidence
+                margin_error = confidence_multiplier * std_error * np.sqrt(days_ahead)
+
+                return {
+                    "prediction": {
+                        "total_predicted_cost": round(float(total_predicted), 2),
+                        "daily_average_cost": round(float(total_predicted / days_ahead), 2),
+                        "confidence_interval": {
+                            "low": round(max(0, float(total_predicted - margin_error)), 2),
+                            "high": round(float(total_predicted + margin_error), 2)
+                        }
+                    },
+                    "historical_data_points": len(historical_data),
+                    "method": "linear_regression",
+                    "trend": "increasing" if slope > 0 else "decreasing"
+                }
+
+            except np.linalg.LinAlgError:
+                # Fallback to average
+                avg_cost = np.mean(costs)
+                predicted_total = avg_cost * days_ahead
+
+                return {
+                    "prediction": {
+                        "total_predicted_cost": round(predicted_total, 2),
+                        "daily_average_cost": round(avg_cost, 2),
+                        "confidence_interval": {
+                            "low": round(predicted_total * 0.8, 2),
+                            "high": round(predicted_total * 1.2, 2)
+                        }
+                    },
+                    "historical_data_points": len(historical_data),
+                    "method": "simple_average_fallback"
+                }
+
+    except Exception as e:
+        logger.error(f"Error predicting costs: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to predict costs"
+        )
+
+
+# Budget tracking endpoint
+@app.get("/costs/budget")
+async def get_budget_status(
+    user_id: str = Depends(require_auth),
+    period: str = "monthly"
+):
+    """
+    Get budget status and alerts for the authenticated user.
+
+    Query Parameters:
+    - period: Budget period - 'daily' or 'monthly' (default: monthly)
+    """
+    from datetime import datetime, timedelta
+    from sqlalchemy import func, and_, extract
+    from .database import get_db_session
+    from .models import UsageLog
+
+    if period not in ["daily", "monthly"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Period must be 'daily' or 'monthly'"
+        )
+
+    try:
+        with get_db_session() as db:
+            # Calculate date range for current period
+            now = datetime.utcnow()
+
+            if period == "daily":
+                period_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                budget_limit = settings.get_litellm_config().get('cost_calculation', {}).get('budget_alerts', {}).get('user_limits', {}).get('default_daily_limit', 10.0)
+            else:  # monthly
+                period_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                budget_limit = settings.get_litellm_config().get('cost_calculation', {}).get('budget_alerts', {}).get('user_limits', {}).get('default_monthly_limit', 300.0)
+
+            # Get current spending for the period
+            current_spending = db.query(func.sum(UsageLog.cost)).filter(
+                UsageLog.user_id == user_id,
+                UsageLog.timestamp >= period_start,
+                UsageLog.timestamp <= now
+            ).scalar() or 0.0
+
+            current_spending = float(current_spending)
+
+            # Calculate budget status
+            budget_used_percentage = (current_spending / budget_limit) * 100 if budget_limit > 0 else 0
+            remaining_budget = max(0, budget_limit - current_spending)
+
+            # Determine alert level
+            alert_thresholds = settings.get_litellm_config().get('cost_calculation', {}).get('budget_alerts', {}).get('alert_thresholds', [50, 80, 90, 95, 100])
+            current_alert_level = None
+
+            for threshold in sorted(alert_thresholds, reverse=True):
+                if budget_used_percentage >= threshold:
+                    current_alert_level = threshold
+                    break
+
+            # Get spending breakdown by model
+            model_breakdown = db.query(
+                UsageLog.model_name,
+                func.sum(UsageLog.cost).label('total_cost'),
+                func.sum(UsageLog.total_tokens).label('total_tokens'),
+                func.count(UsageLog.id).label('request_count')
+            ).filter(
+                UsageLog.user_id == user_id,
+                UsageLog.timestamp >= period_start,
+                UsageLog.timestamp <= now
+            ).group_by(UsageLog.model_name).all()
+
+            breakdown = []
+            for row in model_breakdown:
+                breakdown.append({
+                    "model_name": row.model_name,
+                    "total_cost": round(float(row.total_cost), 2),
+                    "total_tokens": int(row.total_tokens),
+                    "request_count": row.request_count,
+                    "percentage": round((float(row.total_cost) / current_spending) * 100, 1) if current_spending > 0 else 0
+                })
+
+            return {
+                "budget_status": {
+                    "period": period,
+                    "period_start": period_start.isoformat(),
+                    "budget_limit": round(budget_limit, 2),
+                    "current_spending": round(current_spending, 2),
+                    "remaining_budget": round(remaining_budget, 2),
+                    "budget_used_percentage": round(budget_used_percentage, 1),
+                    "alert_level": current_alert_level,
+                    "alert_triggered": current_alert_level is not None
+                },
+                "model_breakdown": breakdown,
+                "currency": settings.get_litellm_config().get('cost_calculation', {}).get('currency', 'USD')
+            }
+
+    except Exception as e:
+        logger.error(f"Error retrieving budget status: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve budget status"
+        )
+
+
+# Cost reporting dashboard endpoint
+@app.get("/costs/dashboard")
+async def get_cost_dashboard(
+    user_id: str = Depends(require_auth),
+    period: str = "monthly",
+    limit: int = 30
+):
+    """
+    Get comprehensive cost dashboard data for analytics and reporting.
+
+    Query Parameters:
+    - period: Reporting period grouping - 'daily', 'weekly', 'monthly' (default: monthly)
+    - limit: Number of data points to return (default: 30, max: 365)
+    """
+    from datetime import datetime, timedelta
+    from sqlalchemy import func, and_, extract, case
+    from .database import get_db_session
+    from .models import UsageLog
+
+    if period not in ["daily", "weekly", "monthly"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Period must be 'daily', 'weekly', or 'monthly'"
+        )
+
+    if limit > 365:
+        limit = 365
+    if limit < 1:
+        limit = 1
+
+    try:
+        with get_db_session() as db:
+            # Calculate date range
+            end_date = datetime.utcnow()
+            if period == "daily":
+                start_date = end_date - timedelta(days=limit)
+                date_trunc = func.date(UsageLog.timestamp)
+                period_label = "day"
+            elif period == "weekly":
+                start_date = end_date - timedelta(weeks=limit)
+                # SQLite week calculation (starts on Monday)
+                date_trunc = func.strftime('%Y-%W', UsageLog.timestamp)
+                period_label = "week"
+            else:  # monthly
+                start_date = end_date - timedelta(days=limit*30)  # Approximate
+                date_trunc = func.strftime('%Y-%m', UsageLog.timestamp)
+                period_label = "month"
+
+            # Get time series data
+            time_series_query = db.query(
+                date_trunc.label('period'),
+                func.sum(UsageLog.cost).label('total_cost'),
+                func.sum(UsageLog.total_tokens).label('total_tokens'),
+                func.count(UsageLog.id).label('total_requests'),
+                func.avg(UsageLog.response_time_ms).label('avg_response_time'),
+                func.count(case((UsageLog.status_code >= 400, 1))).label('error_count')
+            ).filter(
+                UsageLog.user_id == user_id,
+                UsageLog.timestamp >= start_date,
+                UsageLog.timestamp <= end_date
+            ).group_by(date_trunc).order_by(date_trunc)
+
+            time_series_data = time_series_query.all()
+
+            # Get model distribution
+            model_distribution = db.query(
+                UsageLog.model_name,
+                func.sum(UsageLog.cost).label('total_cost'),
+                func.sum(UsageLog.total_tokens).label('total_tokens'),
+                func.count(UsageLog.id).label('request_count'),
+                func.avg(UsageLog.cost).label('avg_cost_per_request')
+            ).filter(
+                UsageLog.user_id == user_id,
+                UsageLog.timestamp >= start_date,
+                UsageLog.timestamp <= end_date
+            ).group_by(UsageLog.model_name).order_by(func.sum(UsageLog.cost).desc()).all()
+
+            # Get provider distribution
+            provider_distribution = db.query(
+                UsageLog.provider,
+                func.sum(UsageLog.cost).label('total_cost'),
+                func.count(UsageLog.id).label('request_count')
+            ).filter(
+                UsageLog.user_id == user_id,
+                UsageLog.timestamp >= start_date,
+                UsageLog.timestamp <= end_date,
+                UsageLog.provider.isnot(None)
+            ).group_by(UsageLog.provider).order_by(func.sum(UsageLog.cost).desc()).all()
+
+            # Calculate summary statistics
+            total_cost = sum(float(row.total_cost) for row in time_series_data)
+            total_tokens = sum(int(row.total_tokens) for row in time_series_data)
+            total_requests = sum(int(row.total_requests) for row in time_series_data)
+            total_errors = sum(int(row.error_count) for row in time_series_data)
+
+            # Format time series data
+            time_series = []
+            for row in time_series_data:
+                time_series.append({
+                    "period": row.period,
+                    "total_cost": round(float(row.total_cost), 2),
+                    "total_tokens": int(row.total_tokens),
+                    "total_requests": int(row.total_requests),
+                    "avg_response_time_ms": round(float(row.avg_response_time or 0), 1),
+                    "error_count": int(row.error_count),
+                    "error_rate": round((int(row.error_count) / int(row.total_requests)) * 100, 2) if int(row.total_requests) > 0 else 0
+                })
+
+            # Format model distribution
+            models = []
+            for row in model_distribution:
+                models.append({
+                    "model_name": row.model_name,
+                    "total_cost": round(float(row.total_cost), 2),
+                    "total_tokens": int(row.total_tokens),
+                    "request_count": int(row.request_count),
+                    "avg_cost_per_request": round(float(row.avg_cost_per_request or 0), 4),
+                    "cost_percentage": round((float(row.total_cost) / total_cost) * 100, 1) if total_cost > 0 else 0
+                })
+
+            # Format provider distribution
+            providers = []
+            for row in provider_distribution:
+                providers.append({
+                    "provider": row.provider,
+                    "total_cost": round(float(row.total_cost), 2),
+                    "request_count": int(row.request_count),
+                    "cost_percentage": round((float(row.total_cost) / total_cost) * 100, 1) if total_cost > 0 else 0
+                })
+
+            return {
+                "summary": {
+                    "total_cost": round(total_cost, 2),
+                    "total_tokens": total_tokens,
+                    "total_requests": total_requests,
+                    "total_errors": total_errors,
+                    "error_rate": round((total_errors / total_requests) * 100, 2) if total_requests > 0 else 0,
+                    "avg_cost_per_request": round(total_cost / total_requests, 4) if total_requests > 0 else 0,
+                    "currency": settings.get_litellm_config().get('cost_calculation', {}).get('currency', 'USD')
+                },
+                "time_series": {
+                    "period_type": period_label,
+                    "data": time_series
+                },
+                "model_distribution": models,
+                "provider_distribution": providers,
+                "date_range": {
+                    "start": start_date.isoformat(),
+                    "end": end_date.isoformat()
+                }
+            }
+
+    except Exception as e:
+        logger.error(f"Error retrieving cost dashboard: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve cost dashboard"
+        )
 
 
 # Root endpoint
