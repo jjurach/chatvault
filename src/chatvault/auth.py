@@ -37,6 +37,25 @@ class Authenticator:
         self.jwt_algorithm = getattr(settings, 'jwt_algorithm', 'HS256')
         self.jwt_expiration_hours = getattr(settings, 'jwt_expiration_hours', 24)
 
+        # Load client configurations for token validation
+        self.client_configs = self._load_client_configs()
+
+    def _load_client_configs(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Load client configurations from the config file.
+
+        Returns:
+            Dict mapping client names to their configurations
+        """
+        try:
+            config = settings.get_litellm_config()
+            clients = config.get('clients', {})
+            logger.debug(f"Loaded {len(clients)} client configurations")
+            return clients
+        except Exception as e:
+            logger.warning(f"Failed to load client configurations: {e}")
+            return {}
+
     def authenticate_token(self, credentials: Optional[HTTPAuthorizationCredentials]) -> Optional[str]:
         """
         Authenticate a Bearer token.
@@ -92,8 +111,7 @@ class Authenticator:
         """
         Validate an authentication token.
 
-        Currently supports simple API key comparison.
-        Can be extended to support JWT tokens, database lookups, etc.
+        Supports master API key and client bearer token validation.
 
         Args:
             token: The token to validate
@@ -101,9 +119,15 @@ class Authenticator:
         Returns:
             True if token is valid, False otherwise
         """
-        # Simple API key comparison
+        # Check master API key
         if token == self.api_key:
             return True
+
+        # Check client bearer tokens
+        for client_name, client_config in self.client_configs.items():
+            expected_token = client_config.get('bearer_token')
+            if expected_token and self._constant_time_compare(token, expected_token):
+                return True
 
         # Future: Add JWT validation
         try:
@@ -118,6 +142,27 @@ class Authenticator:
 
         return False
 
+    def _constant_time_compare(self, a: str, b: str) -> bool:
+        """
+        Constant-time string comparison to prevent timing attacks.
+
+        Args:
+            a: First string to compare
+            b: Second string to compare
+
+        Returns:
+            True if strings are equal, False otherwise
+        """
+        if len(a) != len(b):
+            return False
+
+        # Use XOR to compare bytes
+        result = 0
+        for x, y in zip(a.encode('utf-8'), b.encode('utf-8')):
+            result |= x ^ y
+
+        return result == 0
+
     def _extract_user_from_token(self, token: str) -> str:
         """
         Extract user identifier from token.
@@ -128,9 +173,15 @@ class Authenticator:
         Returns:
             User identifier string
         """
-        # Simple API key - return generic user
+        # Check master API key
         if token == self.api_key:
             return "api_user"
+
+        # Check client tokens and return client name
+        for client_name, client_config in self.client_configs.items():
+            expected_token = client_config.get('bearer_token')
+            if expected_token and self._constant_time_compare(token, expected_token):
+                return f"client_{client_name}"
 
         # Future: Extract from JWT
         try:
@@ -138,6 +189,36 @@ class Authenticator:
             return payload.get('sub', 'jwt_user')
         except jwt.PyJWTError:
             return "unknown_user"
+
+    def validate_model_access(self, user_id: str, model_name: str) -> bool:
+        """
+        Validate that a user/client has access to a specific model.
+
+        Args:
+            user_id: User identifier (from token extraction)
+            model_name: Name of the model being requested
+
+        Returns:
+            True if access is allowed, False otherwise
+        """
+        # Master API key has access to all models
+        if user_id == "api_user":
+            return True
+
+        # Check if this is a client user
+        if user_id.startswith("client_"):
+            client_name = user_id[7:]  # Remove "client_" prefix
+            client_config = self.client_configs.get(client_name)
+            if client_config:
+                allowed_models = client_config.get('allowed_models', [])
+                # Check if client has access to all models
+                if '*' in allowed_models:
+                    return True
+                # Check if requested model is in allowed list
+                return model_name in allowed_models
+
+        # Default deny
+        return False
 
     def create_jwt_token(self, user_id: str, expires_delta: Optional[timedelta] = None) -> str:
         """

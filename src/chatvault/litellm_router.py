@@ -51,6 +51,23 @@ class LiteLLMRouter:
         # Set up logging and callbacks if needed
         # LiteLLM callbacks can be added here for additional tracking
 
+    def _get_model_params(self, model_name: str) -> Dict[str, Any]:
+        """
+        Get the LiteLLM parameters for a model.
+
+        Args:
+            model_name: Name of the model
+
+        Returns:
+            Dictionary of parameters for LiteLLM completion
+        """
+        for model_config in self.model_list:
+            if model_config.get('model_name') == model_name:
+                litellm_params = model_config.get('litellm_params', {})
+                return litellm_params.copy()
+
+        raise ValueError(f"Model '{model_name}' not found in configuration")
+
     def get_available_models(self) -> List[str]:
         """
         Get list of available model names.
@@ -130,12 +147,15 @@ class LiteLLMRouter:
         start_time = time.time()
 
         try:
+            # Get the actual model parameters from config
+            model_params = self._get_model_params(model)
+
+            # Merge with additional kwargs
+            completion_kwargs = {**model_params, **kwargs}
+            completion_kwargs['messages'] = messages
+
             # Make the completion request
-            response = await acompletion(
-                model=model,
-                messages=messages,
-                **kwargs
-            )
+            response = await acompletion(**completion_kwargs)
 
             # Calculate response time
             response_time_ms = int((time.time() - start_time) * 1000)
@@ -206,13 +226,16 @@ class LiteLLMRouter:
         final_chunk = None
 
         try:
+            # Get the actual model parameters from config
+            model_params = self._get_model_params(model)
+
+            # Merge with additional kwargs
+            completion_kwargs = {**model_params, **kwargs}
+            completion_kwargs['messages'] = messages
+            completion_kwargs['stream'] = True
+
             # Make streaming completion request
-            response_stream = await acompletion(
-                model=model,
-                messages=messages,
-                stream=True,
-                **kwargs
-            )
+            response_stream = await acompletion(**completion_kwargs)
 
             async for chunk in response_stream:
                 # Track the final chunk for usage information
@@ -316,20 +339,57 @@ class LiteLLMRouter:
         Calculate cost for a request based on token usage.
 
         Args:
-            model: Model name
+            model: User-friendly model name
             usage_info: Usage statistics
 
         Returns:
             Calculated cost in USD
         """
         try:
-            # Use LiteLLM's cost calculation
-            cost = litellm.cost_per_token(
-                model=model,
-                prompt_tokens=usage_info.get("input_tokens", 0),
-                completion_tokens=usage_info.get("output_tokens", 0)
-            )
-            return cost or 0.0
+            # Get the actual LiteLLM model name
+            litellm_model = settings.get_litellm_model_name(model)
+
+            # First check for custom costs
+            custom_costs = settings.get_custom_costs()
+            if litellm_model and litellm_model in custom_costs:
+                cost_config = custom_costs[litellm_model]
+                input_cost = cost_config.get('input_cost_per_token', 0.0)
+                output_cost = cost_config.get('output_cost_per_token', 0.0)
+
+                input_tokens = usage_info.get("input_tokens", 0)
+                output_tokens = usage_info.get("output_tokens", 0)
+
+                total_cost = (input_tokens * input_cost) + (output_tokens * output_cost)
+                return total_cost
+
+            # Fall back to LiteLLM's built-in cost calculation
+            if litellm_model:
+                cost_result = litellm.cost_per_token(
+                    model=litellm_model,
+                    prompt_tokens=usage_info.get("input_tokens", 0),
+                    completion_tokens=usage_info.get("output_tokens", 0)
+                )
+
+                # Handle different return types from LiteLLM
+                if isinstance(cost_result, tuple):
+                    # Some models return (input_cost, output_cost) tuple
+                    if len(cost_result) >= 2:
+                        input_cost, output_cost = cost_result[0], cost_result[1]
+                        input_tokens = usage_info.get("input_tokens", 0)
+                        output_tokens = usage_info.get("output_tokens", 0)
+                        return (input_tokens * input_cost) + (output_tokens * output_cost)
+                    else:
+                        return 0.0
+                elif isinstance(cost_result, (int, float)):
+                    # Some models return total cost as float
+                    return float(cost_result)
+                else:
+                    # Unknown format, return 0
+                    return 0.0
+            else:
+                logger.warning(f"No LiteLLM model mapping found for {model}")
+                return 0.0
+
         except Exception as e:
             logger.warning(f"Could not calculate cost for {model}: {e}")
             return 0.0
@@ -360,7 +420,10 @@ class LiteLLMRouter:
             return
 
         try:
-            async with get_db_session() as db:
+            # Use synchronous database session from async context
+            from .database import SessionLocal
+            db = SessionLocal()
+            try:
                 usage_log = UsageLog(
                     user_id=user_id,
                     model_name=model_name,
@@ -376,9 +439,12 @@ class LiteLLMRouter:
                 )
 
                 db.add(usage_log)
-                await db.commit()
+                db.commit()
 
                 logger.debug(f"Usage logged: {model_name}, user={user_id}, tokens={usage_info.get('total_tokens', 0)}")
+
+            finally:
+                db.close()
 
         except Exception as e:
             logger.error(f"Failed to log usage: {e}")

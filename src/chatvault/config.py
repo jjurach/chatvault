@@ -204,6 +204,36 @@ class Settings(BaseSettings):
 
         return None
 
+    def get_litellm_model_name(self, model_name: str) -> Optional[str]:
+        """
+        Get the actual LiteLLM model identifier for a given model name.
+
+        Args:
+            model_name: User-friendly model name
+
+        Returns:
+            LiteLLM model identifier or None if not found
+        """
+        config = self.get_litellm_config()
+
+        for model_config in config.get('model_list', []):
+            if model_config.get('model_name') == model_name:
+                litellm_params = model_config.get('litellm_params', {})
+                return litellm_params.get('model')
+
+        return None
+
+    def get_custom_costs(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get custom cost definitions for models.
+
+        Returns:
+            Dict mapping LiteLLM model names to cost information
+        """
+        config = self.get_litellm_config()
+        cost_config = config.get('cost_calculation', {})
+        return cost_config.get('custom_costs', {})
+
 
 # Global settings instance
 settings = Settings()

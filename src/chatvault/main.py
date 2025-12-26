@@ -239,6 +239,15 @@ async def chat_completions(
         messages = normalized_request["messages"]
         stream = normalized_request.get("stream", False)
 
+        # Validate model access for authenticated user
+        from .auth import authenticator
+        if not authenticator.validate_model_access(user_id, model):
+            logger.warning(f"Access denied for user {user_id} to model {model}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied to model '{model}'"
+            )
+
         # Remove OpenAI-specific fields that LiteLLM doesn't need
         litellm_params = {k: v for k, v in normalized_request.items()
                          if k not in ["model", "messages", "stream"]}
