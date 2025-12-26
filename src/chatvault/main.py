@@ -111,7 +111,7 @@ async def log_requests(request: Request, call_next):
 
 # Health check endpoint
 @app.get("/health")
-async def health_check():
+async def health_check(user_id: str = Depends(get_current_user)):
     """
     Health check endpoint for monitoring and load balancers.
 

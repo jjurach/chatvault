@@ -119,11 +119,17 @@ Direct curl commands for testing ChatVault API endpoints. Replace `BEARER_TOKEN`
 ### Health Check
 
 ```bash
-# Basic health check
-curl http://localhost:4000/health
+# Health check with authentication (required)
+curl -H "Authorization: Bearer YOUR_LOCAL1_BEARER_TOKEN" \
+     http://localhost:4000/health
 
 # Pretty-printed health check
-curl http://localhost:4000/health | jq
+curl -H "Authorization: Bearer YOUR_LOCAL1_BEARER_TOKEN" \
+     http://localhost:4000/health | jq
+
+# Health check without authentication (returns 401)
+curl http://localhost:4000/health
+# Expected: 401 Unauthorized
 ```
 
 ### List Available Models
