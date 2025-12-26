@@ -1,13 +1,5 @@
 model_list:
-  - model_name: vault-architect-lite
-    litellm_params:
-      model: claude-3-haiku-20240307
-      api_key: ${ANTHROPIC_API_KEY}
-      api_base: null
-      max_tokens: 4096
-      temperature: 0.7
-
-  - model_name: vault-architect-gemini
+  - model_name: vault-gemini-flash-lite
     litellm_params:
       model: gemini/gemini-flash-lite-latest
       api_key: ${GEMINI_API_KEY}
@@ -15,50 +7,50 @@ model_list:
       max_tokens: 4096
       temperature: 0.7
 
-  - model_name: vault-architect-3-5
+  - model_name: vault-haiku-3
     litellm_params:
-      model: claude-3-5-sonnet-20241022
+      model: claude-3-haiku-20240307
       api_key: ${ANTHROPIC_API_KEY}
       api_base: null
-      max_tokens: 8192
-      temperature: 0.7
-
-  - model_name: vault-local
-    litellm_params:
-      model: ollama/mistral-nemo:12b
-      api_base: ${OLLAMA_BASE_URL}
-      api_key: null
       max_tokens: 4096
       temperature: 0.7
 
-  - model_name: vault-local-large
+  - model_name: vault-gpt-4o-mini
     litellm_params:
-      model: ollama/llama3.1:8b
-      api_base: ${OLLAMA_BASE_URL}
-      api_key: null
-      max_tokens: 8192
-      temperature: 0.7
-
-  - model_name: qwen3-8k
-    litellm_params:
-      model: ollama/qwen3:8b
-      api_base: ${OLLAMA_BASE_URL}
-      api_key: null
-      max_tokens: 8192
-      temperature: 0.7
-
-  - model_name: vault-deepseek
-    litellm_params:
-      model: deepseek-chat
-      api_key: ${DEEPSEEK_API_KEY}
+      model: gpt-4o-mini
+      api_key: ${OPENAI_API_KEY}
       api_base: null
       max_tokens: 4096
+      temperature: 0.7
+
+  - model_name: vault-mistral-nemo-8k
+    litellm_params:
+      model: ollama/nemo-8k:latest
+      api_base: ${OLLAMA_BASE_URL}
+      api_key: null
+      max_tokens: 4096
+      temperature: 0.7
+
+  - model_name: vault-qwen3-8k
+    litellm_params:
+      model: ollama/qwen3-8k:latest
+      api_base: ${OLLAMA_BASE_URL}
+      api_key: null
+      max_tokens: 8192
       temperature: 0.7
 
   - model_name: vault-deepseek-coder
     litellm_params:
-      model: deepseek-coder
+      model: deepseek/deepseek-coder
       api_key: ${DEEPSEEK_API_KEY}
+      api_base: null
+      max_tokens: 4096
+      temperature: 0.7
+
+  - model_name: vault-grok-code-fast-1
+    litellm_params:
+      model: xai/grok-code-fast-1
+      api_key: ${XAI_API_KEY}
       api_base: null
       max_tokens: 4096
       temperature: 0.7
@@ -101,28 +93,24 @@ router_settings:
 cost_calculation:
   # Custom cost definitions for models not supported by LiteLLM built-in pricing
   custom_costs:
-    "ollama/mistral-nemo:12b":
+    "ollama/nemo-8k:latest":
       input_cost_per_token: 0.0
       output_cost_per_token: 0.0
       max_tokens: 4096
-    "ollama/llama3.1:8b":
-      input_cost_per_token: 0.0
-      output_cost_per_token: 0.0
-      max_tokens: 8192
-    "ollama/qwen3:8b":
+    "ollama/qwen3-8k:latest":
       input_cost_per_token: 0.0
       output_cost_per_token: 0.0
       max_tokens: 8192
 
 # CLI Client definitions for command-line usage
 clients:
-  mobile1:
+  local1:
     bearer_token: "YOUR_LOCAL1_BEARER_TOKEN"
     allowed_models:
-      - "vault-local"  # Restricted to local Ollama models
-      - "qwen3-8k"
+      - "vault-qwen3-8k"  # Restricted to local Ollama models
+      - "vault-mistral-nemo-8k"
 
-  full3:
+  full1:
     bearer_token: "YOUR_FULL1_BEARER_TOKEN"
     allowed_models:
       - "*"  # Allow all models

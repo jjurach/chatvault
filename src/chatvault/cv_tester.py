@@ -21,8 +21,8 @@ DEFAULT_CONFIG = {
     'chatvault_url': 'http://localhost:4000',
     'timeout': 30,
     'default_bearer_tokens': {
-        'mobile1': 'YOUR_LOCAL1_BEARER_TOKEN',
-        'full3': 'YOUR_FULL1_BEARER_TOKEN'
+        'local1': 'YOUR_LOCAL1_BEARER_TOKEN',
+        'full1': 'YOUR_FULL1_BEARER_TOKEN'
     }
 }
 
@@ -125,8 +125,8 @@ class ChatVaultTester:
         """Test authentication with bearer token."""
         print("Testing authentication...")
 
-        # Use qwen3-8k for mobile1 client, vault-local for others
-        test_model = 'qwen3-8k' if bearer_token == DEFAULT_CONFIG['default_bearer_tokens']['mobile1'] else 'vault-local'
+        # Use qwen3-8k for local1 client, vault-local for others
+        test_model = 'vault-qwen3-8k' if bearer_token == DEFAULT_CONFIG['default_bearer_tokens']['local1'] else 'vault-local'
 
         # Test with valid token
         request_data = {
@@ -157,14 +157,14 @@ class ChatVaultTester:
         """Test model access restrictions."""
         print("Testing model restrictions...")
 
-        # Test allowed access for mobile1 (qwen3-8k)
+        # Test allowed access for local1 (vault-qwen3-8k)
         request_data = {
-            'model': 'qwen3-8k',  # Allowed model for mobile1
+            'model': 'vault-qwen3-8k',  # Allowed model for local1
             'messages': [{'role': 'user', 'content': 'Test allowed access'}],
             'max_tokens': 10
         }
 
-        print(f"  Testing mobile1 access to qwen3-8k (should be allowed)...")
+        print(f"  Testing local1 access to vault-qwen3-8k (should be allowed)...")
         status, data = self.make_request('/v1/chat/completions', 'POST',
                                        data=request_data, bearer_token=restricted_token)
         print(f"    Status: {status}")
@@ -174,9 +174,9 @@ class ChatVaultTester:
         else:
             access_test = 'FAIL'
 
-        # Test allowed access for mobile1 (vault-local)
-        request_data['model'] = 'vault-local'  # Also allowed for mobile1
-        print(f"  Testing mobile1 access to vault-local (should be allowed)...")
+        # Test allowed access for local1 (vault-mistral-nemo-8k)
+        request_data['model'] = 'vault-mistral-nemo-8k'  # Also allowed for local1
+        print(f"  Testing local1 access to vault-mistral-nemo-8k (should be allowed)...")
         status, data = self.make_request('/v1/chat/completions', 'POST',
                                        data=request_data, bearer_token=restricted_token)
         print(f"    Status: {status}")
@@ -186,9 +186,9 @@ class ChatVaultTester:
         else:
             access_test2 = 'FAIL'
 
-        # Test that full3 can also access these models
-        request_data['model'] = 'qwen3-8k'
-        print(f"  Testing full3 access to qwen3-8k (should be allowed)...")
+        # Test that full1 can also access these models
+        request_data['model'] = 'vault-qwen3-8k'
+        print(f"  Testing full1 access to vault-qwen3-8k (should be allowed)...")
         status, data = self.make_request('/v1/chat/completions', 'POST',
                                        data=request_data, bearer_token=unrestricted_token)
         print(f"    Status: {status}")
@@ -198,7 +198,7 @@ class ChatVaultTester:
         else:
             unrestricted_test = 'FAIL'
 
-        print(f"  Results: mobile1_qwen3={access_test}, mobile1_vaultlocal={access_test2}, full3_qwen3={unrestricted_test}")
+        print(f"  Results: local1_qwen3={access_test}, local1_mistral={access_test2}, full1_qwen3={unrestricted_test}")
 
         # Overall test passes if all working models are accessible
         overall_status = 'PASS' if access_test == 'PASS' and access_test2 == 'PASS' and unrestricted_test == 'PASS' else 'FAIL'
@@ -206,9 +206,9 @@ class ChatVaultTester:
         return {
             'test': 'model_restrictions',
             'status': overall_status,
-            'mobile1_qwen3_test': access_test,
-            'mobile1_vaultlocal_test': access_test2,
-            'full3_qwen3_test': unrestricted_test,
+            'local1_qwen3_test': access_test,
+            'local1_mistral_test': access_test2,
+            'full1_qwen3_test': unrestricted_test,
             'message': 'Model access validated'
         }
 
@@ -329,9 +329,9 @@ class ChatVaultTester:
         }
 
         # Get tokens for testing
-        mobile1_token = client_tokens.get('mobile1') if client_tokens else DEFAULT_CONFIG['default_bearer_tokens']['mobile1']
-        full3_token = client_tokens.get('full3') if client_tokens else DEFAULT_CONFIG['default_bearer_tokens']['full3']
-        test_token = bearer_token or mobile1_token
+        local1_token = client_tokens.get('local1') if client_tokens else DEFAULT_CONFIG['default_bearer_tokens']['local1']
+        full1_token = client_tokens.get('full1') if client_tokens else DEFAULT_CONFIG['default_bearer_tokens']['full1']
+        test_token = bearer_token or local1_token
 
         # Run tests
         if 'basic' in test_types or 'all' in test_types:
@@ -353,8 +353,8 @@ class ChatVaultTester:
                 results['summary']['failed'] += 1
 
             # Test model restrictions if we have both tokens
-            if mobile1_token and full3_token:
-                result = self.test_model_restrictions(mobile1_token, full3_token)
+            if local1_token and full1_token:
+                result = self.test_model_restrictions(local1_token, full1_token)
                 results['tests_run'].append(result)
                 results['summary']['total'] += 1
                 if result['status'] == 'PASS':
@@ -402,7 +402,7 @@ Examples:
                        help='ChatVault port (overrides URL port)')
     parser.add_argument('--bearer', '-b',
                        help='Bearer token for authentication')
-    parser.add_argument('--client', choices=['mobile1', 'full3'],
+    parser.add_argument('--client', choices=['local1', 'full1'],
                        help='Use predefined client token')
     parser.add_argument('--timeout', type=int, default=DEFAULT_CONFIG['timeout'],
                        help=f'Request timeout in seconds (default: {DEFAULT_CONFIG["timeout"]})')
@@ -433,8 +433,8 @@ Examples:
     if args.client:
         bearer_token = DEFAULT_CONFIG['default_bearer_tokens'][args.client]
     elif not bearer_token:
-        # Default to mobile1 for basic testing
-        bearer_token = DEFAULT_CONFIG['default_bearer_tokens']['mobile1']
+        # Default to local1 for basic testing
+        bearer_token = DEFAULT_CONFIG['default_bearer_tokens']['local1']
 
     # Initialize tester
     tester = ChatVaultTester(url, args.timeout)
