@@ -185,6 +185,18 @@ class LiteLLMRouter:
                 success=True
             )
 
+            # Record tracing
+            from .tracing import instrument_chat_completion
+            instrument_chat_completion(
+                user_id=user_id,
+                model=model,
+                provider=provider or "unknown",
+                tokens_used=usage_info.get("total_tokens", 0),
+                cost=usage_info.get("cost", 0.0),
+                response_time_ms=response_time_ms,
+                success=True
+            )
+
             logger.info(f"Chat completion successful: {model}, tokens={usage_info.get('total_tokens', 0)}, time={response_time_ms}ms")
 
             return response
@@ -201,6 +213,19 @@ class LiteLLMRouter:
                 response_time_ms=response_time_ms,
                 provider=self.get_model_provider(model),
                 status_code=500
+            )
+
+            # Record tracing for failed request
+            from .tracing import instrument_chat_completion
+            instrument_chat_completion(
+                user_id=user_id,
+                model=model,
+                provider=self.get_model_provider(model) or "unknown",
+                tokens_used=0,
+                cost=0.0,
+                response_time_ms=response_time_ms,
+                success=False,
+                error_message=str(e)
             )
 
             logger.error(f"Chat completion failed: {model}, error={e}")
@@ -285,6 +310,18 @@ class LiteLLMRouter:
                 success=True
             )
 
+            # Record tracing
+            from .tracing import instrument_chat_completion
+            instrument_chat_completion(
+                user_id=user_id,
+                model=model,
+                provider=provider or "unknown",
+                tokens_used=total_usage.get("total_tokens", 0),
+                cost=self._calculate_cost(model, total_usage),
+                response_time_ms=response_time_ms,
+                success=True
+            )
+
             logger.info(f"Streaming completion successful: {model}, tokens={total_usage.get('total_tokens', 0)}, time={response_time_ms}ms")
 
         except Exception as e:
@@ -298,6 +335,19 @@ class LiteLLMRouter:
                 response_time_ms=response_time_ms,
                 provider=self.get_model_provider(model),
                 status_code=500
+            )
+
+            # Record tracing for failed streaming request
+            from .tracing import instrument_chat_completion
+            instrument_chat_completion(
+                user_id=user_id,
+                model=model,
+                provider=self.get_model_provider(model) or "unknown",
+                tokens_used=0,
+                cost=0.0,
+                response_time_ms=response_time_ms,
+                success=False,
+                error_message=str(e)
             )
 
             logger.error(f"Streaming completion failed: {model}, error={e}")
