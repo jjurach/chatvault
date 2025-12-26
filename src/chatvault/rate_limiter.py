@@ -241,6 +241,10 @@ class RateLimitMiddleware:
             # Rate limit exceeded
             logger.warning(f"Rate limit exceeded for user: {user_id}")
 
+            # Record rate limiting metrics
+            from .metrics import record_rate_limit_metrics
+            record_rate_limit_metrics(user_id)
+
             # Create rate limit exceeded response
             response_headers = [
                 (b"content-type", b"application/json"),

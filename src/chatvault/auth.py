@@ -109,6 +109,11 @@ class Authenticator:
         # For now, return a generic user ID
         # In the future, this could decode JWT tokens or look up user info
         user_id = self._extract_user_from_token(token)
+
+        # Record successful authentication metrics
+        from .metrics import record_auth_metrics
+        record_auth_metrics("bearer_token", True)
+
         logger.debug(f"Authentication successful for user: {user_id}")
         return user_id
 

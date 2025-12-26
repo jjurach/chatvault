@@ -173,6 +173,18 @@ class LiteLLMRouter:
                 provider=self.get_model_provider(model)
             )
 
+            # Record metrics
+            from .metrics import record_chat_completion_metrics
+            record_chat_completion_metrics(
+                user_id=user_id,
+                model=model,
+                provider=provider or "unknown",
+                tokens_used=usage_info.get("total_tokens", 0),
+                cost=usage_info.get("cost", 0.0),
+                response_time=response_time_ms / 1000.0,  # Convert to seconds
+                success=True
+            )
+
             logger.info(f"Chat completion successful: {model}, tokens={usage_info.get('total_tokens', 0)}, time={response_time_ms}ms")
 
             return response
@@ -258,6 +270,19 @@ class LiteLLMRouter:
                 usage_info=total_usage,
                 response_time_ms=response_time_ms,
                 provider=self.get_model_provider(model)
+            )
+
+            # Record metrics
+            from .metrics import record_chat_completion_metrics
+            provider = self.get_model_provider(model)
+            record_chat_completion_metrics(
+                user_id=user_id,
+                model=model,
+                provider=provider or "unknown",
+                tokens_used=total_usage.get("total_tokens", 0),
+                cost=self._calculate_cost(model, total_usage),
+                response_time=response_time_ms / 1000.0,  # Convert to seconds
+                success=True
             )
 
             logger.info(f"Streaming completion successful: {model}, tokens={total_usage.get('total_tokens', 0)}, time={response_time_ms}ms")

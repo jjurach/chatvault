@@ -82,6 +82,17 @@ app.add_middleware(
 from .rate_limiter import RateLimitMiddleware
 app.add_middleware(RateLimitMiddleware)
 
+# Add metrics middleware
+from .metrics import MetricsMiddleware
+app.add_middleware(MetricsMiddleware)
+
+# Add tracing middleware
+from .tracing import TracingMiddleware, init_tracing
+app.add_middleware(TracingMiddleware)
+
+# Initialize tracing
+init_tracing()
+
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -168,7 +179,8 @@ async def health_check(user_id: str = Depends(get_current_user)):
         health["components"]["authentication"] = {
             "status": "healthy",
             "auth_enabled": auth_health["auth_enabled"],
-            "api_key_configured": auth_health["api_key_configured"]
+            "api_key_configured": auth_health["api_key_configured"],
+            "jwt_enabled": auth_health.get("jwt_enabled", False)
         }
     except Exception as e:
         health["components"]["authentication"] = {
@@ -176,6 +188,132 @@ async def health_check(user_id: str = Depends(get_current_user)):
             "error": str(e)
         }
         health["status"] = "unhealthy"
+
+    # Check metrics system
+    try:
+        from .metrics import check_metrics_health
+        metrics_health = check_metrics_health()
+
+        health["components"]["metrics"] = {
+            "status": "healthy" if metrics_health.get("metrics_collection_working", False) else "degraded",
+            "prometheus_available": metrics_health.get("prometheus_client_available", False),
+            "system_metrics_available": metrics_health.get("system_metrics_available", False),
+            "collection_working": metrics_health.get("metrics_collection_working", False)
+        }
+    except Exception as e:
+        health["components"]["metrics"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+
+    # Check tracing system
+    try:
+        from .tracing import check_tracing_health
+        tracing_health = check_tracing_health()
+
+        health["components"]["tracing"] = {
+            "status": "healthy" if tracing_health.get("span_processor_active", False) else "degraded",
+            "opentelemetry_available": tracing_health.get("opentelemetry_available", False),
+            "tracer_provider_configured": tracing_health.get("tracer_provider_configured", False),
+            "span_processor_active": tracing_health.get("span_processor_active", False)
+        }
+    except Exception as e:
+        health["components"]["tracing"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+
+    # Check external API connectivity
+    try:
+        # Test basic connectivity to configured providers
+        api_keys = settings.validate_api_keys()
+        external_checks = {}
+
+        # Check Ollama connectivity (if configured)
+        if settings.ollama_base_url:
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    response = await client.get(f"{settings.ollama_base_url}/api/tags")
+                    external_checks["ollama"] = {
+                        "status": "healthy" if response.status_code == 200 else "degraded",
+                        "response_code": response.status_code
+                    }
+            except Exception as e:
+                external_checks["ollama"] = {
+                    "status": "unhealthy",
+                    "error": str(e)
+                }
+
+        # Note: Other providers (Anthropic, OpenAI, etc.) would require actual API calls
+        # which might consume credits, so we just check if keys are configured
+
+        health["components"]["external_apis"] = {
+            "status": "healthy",
+            "providers_configured": sum(api_keys.values()),
+            "connectivity_checks": external_checks
+        }
+
+        # If any external API is unhealthy, mark overall health as degraded
+        if any(check.get("status") == "unhealthy" for check in external_checks.values()):
+            if health["status"] == "healthy":
+                health["status"] = "degraded"
+
+    except Exception as e:
+        health["components"]["external_apis"] = {
+            "status": "unknown",
+            "error": str(e)
+        }
+
+    # Check model availability
+    try:
+        available_models = settings.get_available_models()
+        total_models = len(available_models)
+
+        # Basic validation - check if models are configured
+        health["components"]["models"] = {
+            "status": "healthy" if total_models > 0 else "unhealthy",
+            "models_configured": total_models,
+            "models_list": available_models[:5] if total_models > 0 else []  # Show first 5
+        }
+
+        if total_models == 0:
+            health["status"] = "unhealthy"
+
+    except Exception as e:
+        health["components"]["models"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+        health["status"] = "unhealthy"
+
+    # Performance metrics
+    try:
+        import psutil
+        process = psutil.Process()
+
+        health["performance"] = {
+            "memory_usage_mb": round(process.memory_info().rss / 1024 / 1024, 2),
+            "cpu_percent": round(process.cpu_percent(interval=0.1), 2),
+            "uptime_seconds": int(time.time() - health.get("timestamp", time.time()))
+        }
+    except ImportError:
+        health["performance"] = {
+            "note": "psutil not available for performance metrics"
+        }
+    except Exception as e:
+        health["performance"] = {
+            "error": str(e)
+        }
+
+    # Determine overall health status based on component statuses
+    component_statuses = [comp.get("status", "unknown") for comp in health.get("components", {}).values()]
+
+    if "unhealthy" in component_statuses:
+        health["status"] = "unhealthy"
+    elif "degraded" in component_statuses or "unknown" in component_statuses:
+        if health["status"] == "healthy":
+            health["status"] = "degraded"
 
     return health
 
@@ -1175,6 +1313,35 @@ async def reset_user_rate_limit(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to reset rate limits"
+        )
+
+
+# Prometheus metrics endpoint
+@app.get("/metrics")
+async def prometheus_metrics():
+    """
+    Prometheus metrics endpoint.
+
+    Returns metrics in Prometheus format for monitoring and alerting.
+    No authentication required for monitoring systems.
+    """
+    try:
+        from .metrics import metrics_collector
+
+        # Update business metrics before returning
+        metrics_collector.update_business_metrics()
+
+        metrics_data = metrics_collector.get_metrics()
+        return Response(
+            content=metrics_data,
+            media_type=metrics_collector.get_metrics_content_type()
+        )
+
+    except Exception as e:
+        logger.error(f"Error serving metrics: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve metrics"
         )
 
 
