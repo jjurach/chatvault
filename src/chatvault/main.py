@@ -78,6 +78,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add rate limiting middleware
+from .rate_limiter import RateLimitMiddleware
+app.add_middleware(RateLimitMiddleware)
+
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -947,6 +951,230 @@ async def get_cost_dashboard(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve cost dashboard"
+        )
+
+
+# JWT Authentication endpoints
+@app.post("/auth/login")
+async def jwt_login(request: Request):
+    """
+    JWT login endpoint.
+
+    Accepts username/password and returns JWT access and refresh tokens.
+    Note: This is a demo implementation - in production, validate against user database.
+    """
+    try:
+        data = await request.json()
+        username = data.get("username")
+        password = data.get("password")
+
+        if not username or not password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username and password required"
+            )
+
+        # Authenticate user (demo implementation)
+        from .auth import authenticator
+        tokens = authenticator.authenticate_jwt_user(username, password)
+
+        if not tokens:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials"
+            )
+
+        return tokens
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Login error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Login failed"
+        )
+
+
+@app.post("/auth/refresh")
+async def jwt_refresh(request: Request):
+    """
+    JWT token refresh endpoint.
+
+    Accepts a valid refresh token and returns new access and refresh tokens.
+    """
+    try:
+        data = await request.json()
+        refresh_token = data.get("refresh_token")
+
+        if not refresh_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Refresh token required"
+            )
+
+        # Validate and refresh tokens
+        from .auth import authenticator
+        new_tokens = authenticator.refresh_access_token(refresh_token)
+
+        if not new_tokens:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired refresh token"
+            )
+
+        return new_tokens
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Token refresh error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Token refresh failed"
+        )
+
+
+@app.post("/auth/logout")
+async def jwt_logout(request: Request):
+    """
+    JWT logout endpoint.
+
+    Revokes the refresh token to prevent further token refresh.
+    """
+    try:
+        data = await request.json()
+        refresh_token = data.get("refresh_token")
+
+        if not refresh_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Refresh token required"
+            )
+
+        # Revoke refresh token
+        from .auth import authenticator
+        revoked = authenticator.revoke_refresh_token(refresh_token)
+
+        if not revoked:
+            # Token might already be invalid/expired, but we still return success
+            logger.info("Attempted to revoke already invalid refresh token")
+
+        return {"message": "Successfully logged out"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Logout error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Logout failed"
+        )
+
+
+# Rate limiting monitoring endpoints
+@app.get("/admin/rate-limits")
+async def get_rate_limits(user_id: str = Depends(require_auth)):
+    """
+    Get rate limiting statistics for all users (admin endpoint).
+
+    Requires authentication. Returns current rate limiting status for monitoring.
+    """
+    try:
+        from .rate_limiter import get_all_rate_limit_stats
+
+        # Only allow admin users to access this endpoint
+        if not (user_id == "api_user" or user_id.startswith("admin")):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin access required"
+            )
+
+        stats = get_all_rate_limit_stats()
+        return {
+            "rate_limits": stats,
+            "total_users": len(stats),
+            "timestamp": int(time.time())
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving rate limits: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve rate limit statistics"
+        )
+
+
+@app.get("/rate-limits/my-limits")
+async def get_my_rate_limits(user_id: str = Depends(require_auth)):
+    """
+    Get rate limiting statistics for the current user.
+
+    Returns current rate limit status and usage for the authenticated user.
+    """
+    try:
+        from .rate_limiter import get_rate_limit_stats
+
+        stats = get_rate_limit_stats(user_id)
+        config = settings.get_litellm_config()
+        router_settings = config.get('router_settings', {})
+        rate_limit_settings = router_settings.get('rate_limit_per_user', {})
+
+        return {
+            "user_id": user_id,
+            "current_usage": stats,
+            "config": {
+                "requests_per_minute": rate_limit_settings.get('requests_per_minute', settings.rate_limit_requests),
+                "window_seconds": 60
+            },
+            "timestamp": int(time.time())
+        }
+
+    except Exception as e:
+        logger.error(f"Error retrieving user rate limits: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve rate limit information"
+        )
+
+
+@app.post("/admin/rate-limits/reset/{user_id}")
+async def reset_user_rate_limit(
+    user_id: str,
+    requesting_user: str = Depends(require_auth)
+):
+    """
+    Reset rate limiting for a specific user (admin endpoint).
+
+    Path Parameters:
+    - user_id: User ID to reset rate limits for
+
+    Requires admin authentication.
+    """
+    try:
+        # Only allow admin users to reset rate limits
+        if not (requesting_user == "api_user" or requesting_user.startswith("admin")):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin access required"
+            )
+
+        from .rate_limiter import reset_user_rate_limit as reset_limit
+
+        reset_limit(user_id)
+        logger.info(f"Rate limits reset for user: {user_id} by admin: {requesting_user}")
+
+        return {"message": f"Rate limits reset for user {user_id}"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resetting rate limits: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reset rate limits"
         )
 
 

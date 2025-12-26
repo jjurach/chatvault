@@ -32,13 +32,18 @@ class Authenticator:
         self.api_key = settings.chatvault_api_key
         self.auth_required = settings.auth_required
 
-        # JWT configuration (for future use)
-        self.jwt_secret = getattr(settings, 'jwt_secret', 'chatvault-secret-key')
-        self.jwt_algorithm = getattr(settings, 'jwt_algorithm', 'HS256')
-        self.jwt_expiration_hours = getattr(settings, 'jwt_expiration_hours', 24)
+        # JWT configuration
+        self.jwt_secret = settings.jwt_secret
+        self.jwt_algorithm = settings.jwt_algorithm
+        self.jwt_expiration_hours = settings.jwt_expiration_hours
+        self.jwt_refresh_expiration_days = settings.jwt_refresh_expiration_days
+        self.jwt_issuer = settings.jwt_issuer
 
         # Load client configurations for token validation
         self.client_configs = self._load_client_configs()
+
+        # JWT refresh token storage (in production, use Redis/database)
+        self.refresh_tokens: Dict[str, Dict[str, Any]] = {}
 
     def _load_client_configs(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -222,14 +227,14 @@ class Authenticator:
 
     def create_jwt_token(self, user_id: str, expires_delta: Optional[timedelta] = None) -> str:
         """
-        Create a JWT token for a user.
+        Create a JWT access token for a user.
 
         Args:
             user_id: User identifier
             expires_delta: Token expiration time
 
         Returns:
-            JWT token string
+            JWT access token string
         """
         if expires_delta is None:
             expires_delta = timedelta(hours=self.jwt_expiration_hours)
@@ -240,10 +245,156 @@ class Authenticator:
             "sub": user_id,
             "exp": expire.timestamp(),
             "iat": datetime.utcnow().timestamp(),
+            "iss": self.jwt_issuer,
+            "type": "access"
         }
 
         encoded_jwt = jwt.encode(to_encode, self.jwt_secret, algorithm=self.jwt_algorithm)
         return encoded_jwt
+
+    def create_refresh_token(self, user_id: str) -> str:
+        """
+        Create a JWT refresh token for a user.
+
+        Args:
+            user_id: User identifier
+
+        Returns:
+            JWT refresh token string
+        """
+        expires_delta = timedelta(days=self.jwt_refresh_expiration_days)
+        expire = datetime.utcnow() + expires_delta
+
+        to_encode = {
+            "sub": user_id,
+            "exp": expire.timestamp(),
+            "iat": datetime.utcnow().timestamp(),
+            "iss": self.jwt_issuer,
+            "type": "refresh",
+            "jti": self._generate_token_id()  # Unique token ID for revocation
+        }
+
+        refresh_token = jwt.encode(to_encode, self.jwt_secret, algorithm=self.jwt_algorithm)
+
+        # Store refresh token for validation (in production, use Redis/database)
+        self.refresh_tokens[refresh_token] = {
+            "user_id": user_id,
+            "created_at": datetime.utcnow(),
+            "expires_at": expire
+        }
+
+        return refresh_token
+
+    def _generate_token_id(self) -> str:
+        """Generate a unique token ID."""
+        import uuid
+        return str(uuid.uuid4())
+
+    def validate_refresh_token(self, refresh_token: str) -> Optional[str]:
+        """
+        Validate a refresh token.
+
+        Args:
+            refresh_token: The refresh token to validate
+
+        Returns:
+            User ID if valid, None otherwise
+        """
+        try:
+            # Check if token exists in our storage
+            if refresh_token not in self.refresh_tokens:
+                return None
+
+            token_data = self.refresh_tokens[refresh_token]
+            if datetime.utcnow() > token_data["expires_at"]:
+                # Token expired, remove it
+                del self.refresh_tokens[refresh_token]
+                return None
+
+            # Decode and validate JWT
+            payload = jwt.decode(refresh_token, self.jwt_secret, algorithms=[self.jwt_algorithm])
+
+            # Verify token type
+            if payload.get("type") != "refresh":
+                return None
+
+            return payload.get("sub")
+
+        except jwt.PyJWTError:
+            return None
+
+    def refresh_access_token(self, refresh_token: str) -> Optional[Dict[str, str]]:
+        """
+        Create new access token using refresh token.
+
+        Args:
+            refresh_token: Valid refresh token
+
+        Returns:
+            Dict with new access_token and refresh_token, or None if invalid
+        """
+        user_id = self.validate_refresh_token(refresh_token)
+        if not user_id:
+            return None
+
+        # Create new tokens
+        new_access_token = self.create_jwt_token(user_id)
+        new_refresh_token = self.create_refresh_token(user_id)
+
+        # Remove old refresh token
+        if refresh_token in self.refresh_tokens:
+            del self.refresh_tokens[refresh_token]
+
+        return {
+            "access_token": new_access_token,
+            "refresh_token": new_refresh_token,
+            "token_type": "bearer"
+        }
+
+    def authenticate_jwt_user(self, username: str, password: str) -> Optional[Dict[str, str]]:
+        """
+        Authenticate user with username/password and return JWT tokens.
+
+        Args:
+            username: Username
+            password: Password
+
+        Returns:
+            Dict with tokens if authentication successful, None otherwise
+        """
+        # For now, this is a placeholder - in production you'd validate against a user database
+        # For demo purposes, accept any non-empty username/password
+        if not username or not password:
+            return None
+
+        # TODO: Implement proper user authentication against database
+        # For now, create tokens for any valid credentials
+        user_id = f"user_{username}"
+
+        access_token = self.create_jwt_token(user_id)
+        refresh_token = self.create_refresh_token(user_id)
+
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "expires_in": self.jwt_expiration_hours * 3600  # seconds
+        }
+
+    def revoke_refresh_token(self, refresh_token: str) -> bool:
+        """
+        Revoke a refresh token.
+
+        Args:
+            refresh_token: Token to revoke
+
+        Returns:
+            True if successfully revoked, False otherwise
+        """
+        if refresh_token in self.refresh_tokens:
+            del self.refresh_tokens[refresh_token]
+            return True
+        return False
 
     def get_token_from_request(self, request: Request) -> Optional[str]:
         """

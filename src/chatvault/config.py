@@ -61,6 +61,13 @@ class Settings(BaseSettings):
     rate_limit_requests: int = Field(default=100, env="RATE_LIMIT_REQUESTS")
     rate_limit_window: int = Field(default=60, env="RATE_LIMIT_WINDOW")
 
+    # JWT Configuration
+    jwt_secret: str = Field(default="chatvault-secret-key-change-in-production", env="JWT_SECRET")
+    jwt_algorithm: str = Field(default="HS256", env="JWT_ALGORITHM")
+    jwt_expiration_hours: int = Field(default=24, env="JWT_EXPIRATION_HOURS")
+    jwt_refresh_expiration_days: int = Field(default=7, env="JWT_REFRESH_EXPIRATION_DAYS")
+    jwt_issuer: str = Field(default="chatvault", env="JWT_ISSUER")
+
     # Performance Configuration
     max_concurrent_requests: int = Field(default=10, env="MAX_CONCURRENT_REQUESTS")
     request_timeout: int = Field(default=300, env="REQUEST_TIMEOUT")
