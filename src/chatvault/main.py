@@ -61,12 +61,91 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI application
 app = FastAPI(
-    title="ChatVault",
-    description="OpenAI-compatible chat proxy with usage tracking and secure key management",
+    title="ChatVault API",
+    description="""
+    # ChatVault - Enterprise LLM Proxy
+
+    A production-ready, OpenAI-compatible proxy for Large Language Models with advanced features:
+
+    ## 🚀 Core Features
+    - **OpenAI-Compatible API**: Drop-in replacement for OpenAI API calls
+    - **Multi-Provider Support**: Route to OpenAI, Anthropic, Google, DeepSeek, Ollama, and more
+    - **Usage Tracking & Billing**: Comprehensive token usage monitoring and cost calculation
+    - **Advanced Security**: JWT authentication, rate limiting, and access controls
+    - **Intelligent Routing**: Load balancing and dynamic model selection
+    - **Enterprise Monitoring**: Prometheus metrics, OpenTelemetry tracing, and health checks
+
+    ## 🔧 Authentication
+    Use Bearer tokens or JWT authentication for API access. Include in headers:
+    ```
+    Authorization: Bearer your-api-key
+    ```
+
+    ## 📊 Monitoring
+    - Health checks: `GET /health`
+    - Metrics: `GET /metrics` (Prometheus format)
+    - API documentation: `GET /docs` (Swagger UI) or `GET /redoc`
+
+    ## 🎯 Quick Start
+    ```python
+    import openai
+
+    client = openai.OpenAI(
+        api_key="your-chatvault-key",
+        base_url="https://your-chatvault-instance.com"
+    )
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": "Hello!"}]
+    )
+    ```
+
+    ## 📈 Advanced Features
+    - **Auto Model Selection**: Use `model="auto"` for intelligent model selection
+    - **Cost Optimization**: Automatic selection of cost-effective models
+    - **Load Balancing**: High availability across multiple provider instances
+    - **A/B Testing**: Experiment with different models safely
+    """,
     version="1.0.0",
+    contact={
+        "name": "ChatVault Support",
+        "url": "https://github.com/chatvault/chatvault",
+        "email": "support@chatvault.com",
+    },
+    license_info={
+        "name": "MIT License",
+        "url": "https://opensource.org/licenses/MIT",
+    },
     lifespan=lifespan,
-    docs_url="/docs" if settings.debug else None,
-    redoc_url="/redoc" if settings.debug else None,
+    docs_url="/docs",  # Always enable docs but secure them
+    redoc_url="/redoc",
+    openapi_tags=[
+        {
+            "name": "Chat Completions",
+            "description": "OpenAI-compatible chat completion endpoints"
+        },
+        {
+            "name": "Models",
+            "description": "Model management and recommendations"
+        },
+        {
+            "name": "Usage & Billing",
+            "description": "Usage statistics, cost tracking, and billing"
+        },
+        {
+            "name": "Authentication",
+            "description": "JWT authentication and token management"
+        },
+        {
+            "name": "Monitoring",
+            "description": "Health checks, metrics, and system monitoring"
+        },
+        {
+            "name": "Admin",
+            "description": "Administrative endpoints for system management"
+        }
+    ]
 )
 
 # Add CORS middleware
@@ -124,8 +203,17 @@ async def log_requests(request: Request, call_next):
         raise
 
 
-# Health check endpoint
-@app.get("/health")
+# API Versioning setup
+from fastapi import APIRouter
+
+# Create versioned API router
+api_v1 = APIRouter(prefix="/v1")
+
+# Add versioned routes to the main app
+app.include_router(api_v1)
+
+# Health check endpoint (not versioned, always available)
+@app.get("/health", tags=["Monitoring"])
 async def health_check(user_id: str = Depends(get_current_user)):
     """
     Health check endpoint for monitoring and load balancers.
@@ -318,8 +406,40 @@ async def health_check(user_id: str = Depends(get_current_user)):
     return health
 
 
-# Models endpoint
-@app.get("/v1/models")
+# API Version information endpoint
+@app.get("/api/versions", tags=["Monitoring"])
+async def get_api_versions():
+    """
+    Get information about available API versions.
+
+    Returns the current API version and supported versions.
+    """
+    return {
+        "current_version": "v1",
+        "supported_versions": ["v1"],
+        "deprecated_versions": [],
+        "version_info": {
+            "v1": {
+                "release_date": "2025-12-26",
+                "description": "Initial production release with advanced routing and monitoring",
+                "features": [
+                    "OpenAI-compatible chat completions",
+                    "Multi-provider load balancing",
+                    "Dynamic model selection",
+                    "Usage tracking and billing",
+                    "Advanced monitoring and metrics",
+                    "JWT authentication"
+                ]
+            }
+        },
+        "migration_guides": {
+            "from_v0_to_v1": "No migration needed - v1 is backward compatible"
+        }
+    }
+
+
+# Models endpoint (versioned)
+@api_v1.get("/models", tags=["Models"])
 async def list_models(user_id: str = Depends(get_current_user)):
     """
     OpenAI-compatible models endpoint.
@@ -364,8 +484,8 @@ async def list_models(user_id: str = Depends(get_current_user)):
         )
 
 
-# Chat completions endpoint
-@app.post("/v1/chat/completions")
+# Chat completions endpoint (versioned)
+@api_v1.post("/chat/completions", tags=["Chat Completions"])
 async def chat_completions(
     request: Request,
     user_id: str = Depends(require_auth)
