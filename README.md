@@ -385,12 +385,118 @@ grep '"client": "mobile1"' chat.log
 grep '"event_type": "request_response"' chat.log | grep -o '"client": "[^"]*"' | sort | uniq -c
 ```
 
+## Testing
+
+### CV-Tester Tool
+
+ChatVault includes a comprehensive testing tool called `cv-tester` that validates ChatVault functionality by making actual HTTP requests to the OpenAI-compatible API endpoints.
+
+#### Features
+
+- **HTTP-based Testing**: Makes real requests to ChatVault's `/v1/chat/completions` and `/v1/models` endpoints
+- **Authentication Testing**: Validates bearer token authentication
+- **Model Access Control**: Tests client-based model restrictions
+- **Streaming Support**: Validates streaming response functionality
+- **Error Handling**: Tests proper error responses for invalid requests
+- **Flexible Configuration**: Supports custom URLs, ports, and bearer tokens
+
+#### Installation
+
+CV-Tester is included with ChatVault. No additional installation required.
+
+#### Usage
+
+Basic syntax:
+```bash
+python cv_tester.py [OPTIONS] [TESTS]...
+```
+
+#### Command-line Options
+
+- `--url URL`: ChatVault URL (default: http://localhost:4000)
+- `--port PORT`: Override port in URL
+- `--bearer TOKEN`: Custom bearer token for testing
+- `--client {mobile1,full3}`: Use predefined client token
+- `--timeout SECONDS`: Request timeout (default: 30)
+- `--verbose, -v`: Enable verbose output
+- `--json`: Output results in JSON format
+
+#### Test Types
+
+- `basic`: Test basic connectivity and health checks
+- `models`: Test authentication and model restrictions
+- `streaming`: Test streaming response functionality
+- `errors`: Test error handling scenarios
+- `all`: Run all tests (default)
+
+#### Examples
+
+Test basic connectivity:
+```bash
+python cv_tester.py basic
+```
+
+Test with custom port:
+```bash
+python cv_tester.py --port 8080 all
+```
+
+Test with specific client:
+```bash
+python cv_tester.py --client mobile1 models
+```
+
+Test streaming functionality:
+```bash
+python cv_tester.py streaming
+```
+
+Get JSON output for CI/CD integration:
+```bash
+python cv_tester.py --json all
+```
+
+#### Test Results
+
+CV-Tester provides clear pass/fail output with detailed information:
+
+```
+CV-Tester Results (http://localhost:4000)
+Tests run: 5
+Passed: 5
+Failed: 0
+
+✅ basic_connectivity: Basic connectivity verified
+✅ authentication: Authentication successful
+✅ model_restrictions: Model restrictions validated
+✅ streaming_response: Streaming response received (3 events)
+✅ error_handling: Error handling validated
+
+🎉 All tests passed!
+```
+
+#### Integration with CI/CD
+
+CV-Tester can be integrated into deployment pipelines:
+
+```bash
+# Exit code indicates success/failure
+python cv_tester.py all
+if [ $? -eq 0 ]; then
+    echo "All tests passed - deployment approved"
+else
+    echo "Tests failed - deployment blocked"
+    exit 1
+fi
+```
+
 ## Development
 
 ### Project Structure
 
 ```
 chatvault/
+├── cv_tester.py           # Testing tool for ChatVault API
 ├── src/
 │   ├── cli.py              # Main CLI entry point
 │   ├── cli_config.py       # Configuration file parsing
@@ -398,6 +504,9 @@ chatvault/
 │   ├── cli_logging.py      # JSON logging system
 │   ├── main.py            # FastAPI web application
 │   └── ...                # Other ChatVault modules
+├── tests/
+│   ├── test_cv_tester.py   # Unit tests for cv-tester
+│   └── ...                # Other test files
 ├── config.yaml            # Configuration file
 ├── setup.py              # Packaging configuration
 ├── requirements.txt      # Python dependencies
@@ -441,3 +550,10 @@ For issues and questions:
 - JSON logging with configurable verbosity
 - Support for streaming and regular responses
 - Cross-platform command-line interface
+- **CV-Tester**: Comprehensive testing tool for API validation
+  - HTTP-based testing with real API calls
+  - Authentication and model restriction testing
+  - Streaming response validation
+  - Error handling verification
+  - CI/CD integration support
+  - JSON output for automation
