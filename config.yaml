@@ -128,6 +128,58 @@ router_settings:
     local: vault-local
     deepseek: vault-deepseek
 
+# Model routing settings for dynamic model selection
+model_routing:
+  # Enable automatic model selection for requests
+  auto_select: false  # Set to true to enable automatic model selection for all requests
+
+  # Model capabilities configuration
+  capabilities:
+    vault-gpt-4o-mini:
+      - "general_chat"
+      - "question_answering"
+      - "analysis"
+    vault-haiku-3:
+      - "general_chat"
+      - "code_generation"
+      - "code_review"
+      - "creative_writing"
+    vault-gemini-flash-lite:
+      - "general_chat"
+      - "creative_writing"
+      - "analysis"
+    vault-gemini-2.5-pro:
+      - "general_chat"
+      - "analysis"
+      - "mathematical"
+      - "creative_writing"
+    vault-mistral-nemo-8k:
+      - "general_chat"
+      - "code_generation"
+      - "analysis"
+    vault-qwen3-8k:
+      - "general_chat"
+      - "code_generation"
+      - "analysis"
+      - "creative_writing"
+    vault-deepseek-coder:
+      - "code_generation"
+      - "code_review"
+      - "analysis"
+      - "general_chat"
+    vault-grok-code-fast-1:
+      - "code_generation"
+      - "creative_writing"
+      - "analysis"
+
+  # A/B testing experiments (optional)
+  experiments:
+    # Example experiment configuration
+    # - id: "code-models-comparison"
+    #   name: "Code Model Performance Comparison"
+    #   models: ["vault-deepseek-coder", "vault-grok-code-fast-1"]
+    #   traffic_percentage: 10.0  # 10% of requests will be part of this experiment
+
 # Cost calculation settings
 cost_calculation:
   # Enable advanced cost features
