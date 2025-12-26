@@ -31,6 +31,14 @@ model_list:
       max_tokens: 8192
       temperature: 0.7
 
+  - model_name: qwen3-8k
+    litellm_params:
+      model: qwen3:8k
+      api_base: ${OLLAMA_BASE_URL}
+      api_key: null
+      max_tokens: 8192
+      temperature: 0.7
+
   - model_name: vault-deepseek
     litellm_params:
       model: deepseek-chat
@@ -86,7 +94,8 @@ clients:
   mobile1:
     bearer_token: "YOUR_LOCAL1_BEARER_TOKEN"
     allowed_models:
-      - "vault-local"  # Restricted to local Ollama model
+      - "vault-local"  # Restricted to local Ollama models
+      - "qwen3-8k"
 
   full3:
     bearer_token: "YOUR_FULL1_BEARER_TOKEN"

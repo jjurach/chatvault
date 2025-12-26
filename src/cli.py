@@ -22,6 +22,7 @@ if current_dir not in sys.path:
 from cli_config import load_config, get_client_config, get_available_models, get_provider_for_model
 from cli_auth import authenticate_client, validate_model_access
 from cli_logging import setup_logging
+from cli_server import make_chat_request, get_server_url, check_server_health
 
 
 @click.group()
@@ -44,6 +45,8 @@ def cli():
               help='Client identifier (must match configuration)')
 @click.option('--bearer', '-b', required=True,
               help='Bearer token for client authentication')
+@click.option('--server-url', default='http://localhost:4000',
+              help='ChatVault server URL (default: http://localhost:4000)')
 @click.option('--config', '-f', default='config.yaml',
               help='Path to configuration file (default: config.yaml)')
 @click.option('--verbose', '-v', is_flag=True,
@@ -56,7 +59,7 @@ def cli():
               help='Temperature parameter for LLM request')
 @click.option('--max-tokens', type=int,
               help='Maximum tokens for response')
-def chat(model: str, messages: List[str], client: str, bearer: str, config: str,
+def chat(model: str, messages: List[str], client: str, bearer: str, server_url: str, config: str,
          verbose: bool, logfile: Optional[str], stream: bool, temperature: Optional[float],
          max_tokens: Optional[int]):
     """
@@ -94,35 +97,33 @@ def chat(model: str, messages: List[str], client: str, bearer: str, config: str,
         if max_tokens is not None:
             request_data["max_tokens"] = max_tokens
 
-        # Here we would integrate with the existing ChatVault routing logic
-        # For now, we'll create a placeholder response
-        response_data = {
-            "id": f"chatcmpl-{client}-test",
-            "object": "chat.completion",
-            "created": 1234567890,
-            "model": model,
-            "choices": [{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": "This is a placeholder response. CLI integration pending."
-                },
-                "finish_reason": "stop"
-            }],
-            "usage": {
-                "prompt_tokens": len(str(parsed_messages)),
-                "completion_tokens": 10,
-                "total_tokens": len(str(parsed_messages)) + 10
-            }
-        }
+        # Check server connectivity first
+        is_healthy, health_error = check_server_health(server_url)
+        if not is_healthy:
+            raise click.ClickException(f"ChatVault server not available: {health_error}")
+
+        # Make the actual request to the ChatVault server
+        click.echo(f"Sending request to {server_url}...", err=True)
+
+        response_data, error = make_chat_request(server_url, request_data, bearer)
+
+        if error:
+            raise click.ClickException(f"Chat request failed: {error}")
+
+        # Log the request if requested
+        if logfile or verbose:
+            log_entry = setup_logging(client, model, request_data, response_data,
+                                    logfile, verbose, stream)
+            if not logfile:  # Print to stdout if no file specified
+                click.echo(json.dumps(log_entry, indent=2), err=True)
 
         # Output response
         if stream:
-            # Streaming output (placeholder)
-            click.echo("data: " + json.dumps(response_data))
-            click.echo("data: [DONE]")
+            # For streaming, the response should already be handled by make_chat_request
+            # For now, we'll output the response as-is
+            click.echo(json.dumps(response_data, indent=2))
         else:
-            # Regular output
+            # Regular response output
             click.echo(json.dumps(response_data, indent=2))
 
     except Exception as e:
@@ -152,6 +153,57 @@ def list_models(config: str):
 
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.option('--host', default='localhost',
+              help='Server host (default: localhost)')
+@click.option('--port', type=int, default=4000,
+              help='Server port (default: 4000)')
+@click.option('--config', '-f', default='config.yaml',
+              help='Path to configuration file (default: config.yaml)')
+@click.option('--reload', is_flag=True,
+              help='Enable auto-reload for development')
+@click.option('--log-level', default='INFO',
+              help='Logging level (default: INFO)')
+def serve(host: str, port: int, config: str, reload: bool, log_level: str):
+    """
+    Start the ChatVault server.
+
+    Launches the FastAPI server with OpenAI-compatible endpoints for LLM processing.
+    All requests are authenticated and logged according to the configuration.
+    """
+    try:
+        import os
+        import sys
+
+        # Set environment variables for configuration
+        os.environ['SERVER_HOST'] = host
+        os.environ['SERVER_PORT'] = str(port)
+        os.environ['LOG_LEVEL'] = log_level
+
+        # Import and configure settings
+        from .config import settings
+        settings.host = host
+        settings.port = port
+        settings.debug = reload
+
+        click.echo(f"Starting ChatVault server on {host}:{port}")
+        if reload:
+            click.echo("Development mode enabled (auto-reload)")
+        click.echo("Press Ctrl+C to stop the server")
+        click.echo()
+
+        # Import and start the server
+        from .main import main as server_main
+        server_main()
+
+    except KeyboardInterrupt:
+        click.echo("\nServer stopped by user")
+        sys.exit(0)
+    except Exception as e:
+        click.echo(f"Error starting server: {e}", err=True)
         sys.exit(1)
 
 
