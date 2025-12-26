@@ -1316,6 +1316,43 @@ async def reset_user_rate_limit(
         )
 
 
+# Load balancing monitoring endpoints
+@app.get("/admin/load-balancer/stats")
+async def get_load_balancer_stats(
+    model_name: Optional[str] = None,
+    user_id: str = Depends(require_auth)
+):
+    """
+    Get load balancing statistics for monitoring.
+
+    Query Parameters:
+    - model_name: Optional specific model to get stats for
+
+    Requires admin authentication.
+    """
+    try:
+        # Only allow admin users to access this endpoint
+        if not (user_id == "api_user" or user_id.startswith("admin")):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin access required"
+            )
+
+        from .load_balancer import get_load_balancer_stats
+        stats = get_load_balancer_stats(model_name)
+
+        return stats
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving load balancer stats: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve load balancer statistics"
+        )
+
+
 # Prometheus metrics endpoint
 @app.get("/metrics")
 async def prometheus_metrics():

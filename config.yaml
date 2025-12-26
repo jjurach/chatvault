@@ -83,6 +83,36 @@ router_settings:
   # Routing strategy (simple, usage-based, latency-based)
   routing_strategy: "simple"
 
+  # Load balancing configuration
+  load_balancing:
+    # Default algorithm: round_robin, least_loaded, random, weighted_round_robin
+    algorithm: "round_robin"
+
+    # Health check settings
+    health_check_interval: 60  # seconds
+    health_check_timeout: 10   # seconds
+
+    # Circuit breaker settings
+    circuit_breaker_failures: 3    # consecutive failures to trigger
+    circuit_breaker_timeout: 300   # seconds to wait before retry
+
+    # Per-model instance configuration (optional)
+    # Uncomment and configure for multiple instances per model
+    instances:
+      # vault-gpt-4o-mini:
+      #   - id: "openai-primary"
+      #     base_url: null
+      #     api_key: ${OPENAI_API_KEY}
+      #     weight: 2
+      #     max_concurrent: 20
+      #     timeout: 30
+      #   - id: "openai-secondary"
+      #     base_url: null
+      #     api_key: ${OPENAI_API_KEY_2}
+      #     weight: 1
+      #     max_concurrent: 15
+      #     timeout: 30
+
   # Fallback settings
   fallbacks:
     - vault-architect: ["vault-architect-3-5"]
