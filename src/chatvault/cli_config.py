@@ -265,14 +265,15 @@ model_list:
       temperature: 0.7
 
 # CLI Client definitions (NEW for CLI usage)
+# Bearer tokens are loaded from environment variables for security
 clients:
   mobile1:
-    bearer_token: "YOUR_LOCAL1_BEARER_TOKEN"
+    bearer_token: "${CHATVAULT_CLIENT_LOCAL1_TOKEN}"
     allowed_models:
       - "llama3-local"
 
   full3:
-    bearer_token: "YOUR_FULL1_BEARER_TOKEN"
+    bearer_token: "${CHATVAULT_CLIENT_FULL1_TOKEN}"
     allowed_models:
       - "*"  # Allow all models
 

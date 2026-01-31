@@ -36,12 +36,12 @@ The server will start on `http://localhost:4000` by default.
 ChatVault supports multiple clients with different access levels:
 
 ### local1 (Restricted Access)
-- **Bearer Token**: `YOUR_LOCAL1_BEARER_TOKEN`
+- **Bearer Token**: See `.env.example` for `CHATVAULT_CLIENT_LOCAL1_TOKEN`
 - **Allowed Models**: `vault-qwen3-8k`, `vault-mistral-nemo-8k`
 - **Use Case**: Local Ollama models only
 
 ### full1 (Full Access)
-- **Bearer Token**: `YOUR_FULL1_BEARER_TOKEN`
+- **Bearer Token**: See `.env.example` for `CHATVAULT_CLIENT_FULL1_TOKEN`
 - **Allowed Models**: All configured models (`*`)
 - **Use Case**: Complete access to all providers
 

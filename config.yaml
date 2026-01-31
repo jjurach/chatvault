@@ -279,14 +279,16 @@ cost_calculation:
       - "discounts"
 
 # CLI Client definitions for command-line usage
+# Bearer tokens are configured via environment variables for security
+# See .env.example for CHATVAULT_CLIENT_LOCAL1_TOKEN and CHATVAULT_CLIENT_FULL1_TOKEN
 clients:
   local1:
-    bearer_token: "YOUR_LOCAL1_BEARER_TOKEN"
+    bearer_token: "${CHATVAULT_CLIENT_LOCAL1_TOKEN}"
     allowed_models:
       - "vault-qwen3-8k"  # Restricted to local Ollama models
       - "vault-mistral-nemo-8k"
 
   full1:
-    bearer_token: "YOUR_FULL1_BEARER_TOKEN"
+    bearer_token: "${CHATVAULT_CLIENT_FULL1_TOKEN}"
     allowed_models:
       - "*"  # Allow all models

@@ -11,18 +11,20 @@ import argparse
 import json
 import sys
 import time
+import os
 from typing import Dict, Any, List, Optional, Tuple
 import requests
 from urllib.parse import urljoin
 
 
 # Default configuration
+# Bearer tokens are loaded from environment variables (.env file)
 DEFAULT_CONFIG = {
     'chatvault_url': 'http://localhost:4000',
     'timeout': 30,
     'default_bearer_tokens': {
-        'local1': 'YOUR_LOCAL1_BEARER_TOKEN',
-        'full1': 'YOUR_FULL1_BEARER_TOKEN'
+        'local1': os.getenv('CHATVAULT_CLIENT_LOCAL1_TOKEN', 'YOUR_LOCAL1_BEARER_TOKEN'),
+        'full1': os.getenv('CHATVAULT_CLIENT_FULL1_TOKEN', 'YOUR_FULL1_BEARER_TOKEN')
     }
 }
 
