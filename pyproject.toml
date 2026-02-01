@@ -11,7 +11,7 @@ requires-python = ">=3.8"
 license = {text = "MIT"}
 keywords = ["openai", "chat", "proxy", "tracking", "security"]
 authors = [
-    {name = "ChatVault Team", email = ""},
+    {name = "ChatVault Team"},
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
