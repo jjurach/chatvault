@@ -9,7 +9,7 @@ This document provides comprehensive instructions for deploying ChatVault in pro
 - [Production Deployment](#production-deployment)
 - [SSH Reverse Tunnel Setup](#ssh-reverse-tunnel-setup)
 - [Configuration](#configuration)
-- [Monitoring & Maintenance](#monitoring--maintenance)
+- [Monitoring and Maintenance](#monitoring-and-maintenance)
 - [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
@@ -366,7 +366,7 @@ model_list:
 | `ANTHROPIC_API_KEY` | Anthropic API key | - | No |
 | `OLLAMA_BASE_URL` | Ollama server URL | http://localhost:11434 | No |
 
-## Monitoring & Maintenance
+## Monitoring and Maintenance
 
 ### Health Checks
 
@@ -537,3 +537,5 @@ For additional help:
 ---
 
 **Last updated:** December 2025
+---
+Last Updated: 2026-02-01

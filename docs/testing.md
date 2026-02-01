@@ -386,3 +386,5 @@ XAI_API_KEY=...
 | `python -m chatvault.cli chat qwen3-8k user "Hello"` | Direct CLI chat (no server needed) |
 
 This testing guide covers all major ChatVault functionality, ensuring proper authentication, authorization, and model access controls.
+---
+Last Updated: 2026-02-01

@@ -490,6 +490,20 @@ else
 fi
 ```
 
+## Documentation
+
+### For AI Agents
+- **[AGENTS.md](AGENTS.md)** - Mandatory workflow for AI agents.
+- **[Definition of Done](docs/definition-of-done.md)** - Quality standards.
+- **[Workflows](docs/workflows.md)** - Development workflows.
+- **Tool Guides**: [Aider](docs/system-prompts/tools/aider.md), [Claude Code](docs/system-prompts/tools/claude-code.md), [Cline](docs/system-prompts/tools/cline.md), [Codex](docs/system-prompts/tools/codex.md), [Gemini](docs/system-prompts/tools/gemini.md).
+
+### For Developers
+- **[Documentation Index](docs/README.md)** - Complete documentation navigation hub.
+- **[Architecture](docs/architecture.md)** - System architecture.
+- **[Implementation Reference](docs/implementation-reference.md)** - Code patterns and templates.
+- **[Testing](docs/testing.md)** - Testing strategy.
+
 ## Development
 
 ### Project Structure
@@ -557,3 +571,5 @@ For issues and questions:
   - Error handling verification
   - CI/CD integration support
   - JSON output for automation
+---
+Last Updated: 2026-02-01
