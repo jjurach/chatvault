@@ -270,8 +270,7 @@ class DocumentScanner:
         all_md_files = list(self.project_root.rglob("*.md"))
 
         for md_file in all_md_files:
-            file_path_str = str(md_file)
-            if ".git" in file_path_str or "venv" in file_path_str or "node_modules" in file_path_str:
+            if ".git" in str(md_file):
                 continue
 
             relative_path = str(md_file.relative_to(self.project_root))
@@ -494,8 +493,7 @@ class DocumentScanner:
         all_md_files = list(self.project_root.rglob("*.md"))
 
         for md_file in all_md_files:
-            file_path_str = str(md_file)
-            if ".git" in file_path_str or "venv" in file_path_str or "node_modules" in file_path_str:
+            if ".git" in str(md_file):
                 continue
 
             relative_path = str(md_file.relative_to(self.project_root))

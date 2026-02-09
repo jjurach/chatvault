@@ -56,27 +56,35 @@ class LinkTransformer:
         if path_part.startswith('/'):
             return link_path, None
 
+        # Only transform relative links starting with ../ or ./
+        if not (path_part.startswith('../') or path_part.startswith('./')):
+            return link_path, None
+
         # Transform the path
         try:
             source_abs = Path(project_root) / source_file
             target_abs = Path(project_root) / target_file
 
             # Resolve link relative to source
-            # Note: Path.resolve() doesn't require the file to exist, but
-            # it will resolve .. and . components.
             link_abs = (source_abs.parent / path_part).resolve()
 
             # Make relative to target
-            new_rel_path = os.path.relpath(link_abs, target_abs.parent)
+            try:
+                relative = link_abs.relative_to(target_abs.parent.resolve())
+            except ValueError:
+                warning = f"Link '{link_path}' in {source_file} points outside project"
+                return link_path, warning
 
-            # Reattach anchor if present
+            # Reconstruct with anchor
+            transformed = str(relative)
             if anchor:
-                new_rel_path = f"{new_rel_path}#{anchor}"
+                transformed = f"{transformed}#{anchor}"
 
-            return new_rel_path, None
-        except (ValueError, OSError) as e:
-            return link_path, f"Could not transform link '{link_path}': {e}"
+            return transformed, None
 
+        except Exception as e:
+            warning = f"Failed to transform link '{link_path}' in {source_file}: {e}"
+            return link_path, warning
 
 
 class Bootstrap:

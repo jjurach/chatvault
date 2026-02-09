@@ -788,7 +788,7 @@ Processes are specialized, one-time or periodic maintenance operations. Located 
 
 ## Project Integration
 
-This Agent Kernel is integrated into the **ChatVault** project with the following extensions:
+This Agent Kernel is integrated into the **Second Voice** project with the following extensions:
 
 ### Entry Points
 
@@ -802,22 +802,21 @@ The project adds domain-specific requirements for:
 
 **Project Type:**
 - CLI Application
-- LLM Proxy & Audit Layer
-- FastAPI Web Server
+- Audio Processing (AAC, Whisper)
+- Google Gemini Integration
 
 **Technology Stack:**
-- Python 3.8+
+- Python 3.12+
 - Pytest
-- FastAPI / Uvicorn
-- SQLite / SQLAlchemy
-- LiteLLM
+- SoundDevice
+- Pydub
 
 See [docs/definition-of-done.md](../definition-of-done.md) for complete project-specific requirements.
 
 ### Sync Status
 
-- **Bootstrap sync:** Completed 2026-02-01
-- **Last integration update:** 2026-02-01
+- **Bootstrap sync:** Completed 2026-01-29
+- **Last integration update:** 2026-01-29
 - **Sections synchronized:** CORE-WORKFLOW, PRINCIPLES, PYTHON-DOD
 
 ### Documentation Structure
@@ -850,6 +849,3 @@ project-root/
 Agent Kernel v1.0 - January 2026
 
 For updates, issues, or contributions, refer to your project's development guidelines.
-
----
-Last Updated: 2026-02-01
